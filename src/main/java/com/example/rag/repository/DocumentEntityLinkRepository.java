@@ -35,4 +35,13 @@ public interface DocumentEntityLinkRepository extends JpaRepository<DocumentEnti
             "and e.NORMALIZED_NAME in (:normalizedNames) " +
             "group by l.CHUNK_ID", nativeQuery = true)
     List<Object[]> countEntityMatchesByNormalizedNames(@Param("normalizedNames") List<String> normalizedNames);
+
+    @Query(value = "select e.ID, e.ENTITY_NAME, e.ENTITY_TYPE, e.NORMALIZED_NAME, l.SOURCE_TEXT " +
+            "from RAG_DOCUMENT_ENTITY_LINKS l " +
+            "join RAG_ENTITIES e on e.ID = l.ENTITY_ID " +
+            "where l.DOCUMENT_ID = :documentId " +
+            "and l.CHUNK_ID = :chunkId " +
+            "order by e.ENTITY_TYPE, e.NORMALIZED_NAME", nativeQuery = true)
+    List<Object[]> findEntitiesByDocumentIdAndChunkId(@Param("documentId") Long documentId,
+                                                      @Param("chunkId") Long chunkId);
 }
