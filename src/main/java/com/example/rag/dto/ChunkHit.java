@@ -5,7 +5,7 @@ public class ChunkHit {
     private Long documentId;
     private Integer chunkIndex;
     private String content;
-    private String highlightContent;
+    private Integer tokenCount;
 
     public Long getDocumentId() {
         return documentId;
@@ -31,11 +31,11 @@ public class ChunkHit {
         this.content = content;
     }
 
-    public String getHighlightContent() {
-        return highlightContent;
+    public Integer getTokenCount() {
+        return tokenCount;
     }
 
-    public void setHighlightContent(String highlightContent) {
-        this.highlightContent = highlightContent;
+    public void setTokenCount(Integer tokenCount) {
+        this.tokenCount = tokenCount;
     }
 }

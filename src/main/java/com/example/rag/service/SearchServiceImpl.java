@@ -1,7 +1,6 @@
 package com.example.rag.service;
 
 import com.example.rag.dto.ChunkHit;
-import com.example.rag.dto.ChunkResponse;
 import com.example.rag.dto.SearchMeta;
 import com.example.rag.dto.SearchResult;
 import com.example.rag.entity.DocumentChunk;
@@ -12,7 +11,6 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 
 @Service
 public class SearchServiceImpl implements SearchService {
@@ -25,30 +23,37 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public SearchResult searchByKeyword(String keyword) {
-        List<ChunkResponse> chunkResponses = searchChunkResponses(keyword, Integer.MAX_VALUE);
+        long start = System.currentTimeMillis();
+        String cleanedKeyword = normalizeKeyword(keyword);
+
         List<ChunkHit> matchedChunks = new ArrayList<>();
         LinkedHashSet<Long> matchedDocumentIdSet = new LinkedHashSet<>();
 
-        for (ChunkResponse chunk : chunkResponses) {
-            ChunkHit hit = new ChunkHit();
-            hit.setDocumentId(chunk.getDocumentId());
-            hit.setChunkIndex(chunk.getChunkIndex());
-            hit.setContent(chunk.getContent());
-            hit.setHighlightContent(chunk.getHighlightContent());
-            matchedChunks.add(hit);
-            if (chunk.getDocumentId() != null) {
-                matchedDocumentIdSet.add(chunk.getDocumentId());
+        if (StringUtils.hasText(cleanedKeyword)) {
+            List<DocumentChunk> chunks = documentChunkRepository.searchByKeyword(cleanedKeyword);
+            for (DocumentChunk chunk : chunks) {
+                ChunkHit hit = new ChunkHit();
+                hit.setDocumentId(chunk.getDocumentId());
+                hit.setChunkIndex(chunk.getChunkIndex());
+                hit.setContent(chunk.getContent());
+                hit.setTokenCount(chunk.getTokenCount());
+                matchedChunks.add(hit);
+                if (chunk.getDocumentId() != null) {
+                    matchedDocumentIdSet.add(chunk.getDocumentId());
+                }
             }
         }
 
         List<Long> matchedDocumentIds = new ArrayList<>(matchedDocumentIdSet);
+        long costMs = System.currentTimeMillis() - start;
 
         SearchMeta searchMeta = new SearchMeta();
+        searchMeta.setKeyword(cleanedKeyword);
         searchMeta.setTotalHits(matchedChunks.size());
-        searchMeta.setMatchedDocumentIds(matchedDocumentIds);
+        searchMeta.setCostMs(costMs);
 
         SearchResult result = new SearchResult();
-        result.setKeyword(keyword);
+        result.setKeyword(cleanedKeyword);
         result.setMatchedChunks(matchedChunks);
         result.setMatchedDocumentIds(matchedDocumentIds);
         result.setSearchMeta(searchMeta);
@@ -56,62 +61,86 @@ public class SearchServiceImpl implements SearchService {
     }
 
     @Override
-    public List<ChunkResponse> searchChunkResponses(String keyword, int limit) {
-        if (!StringUtils.hasText(keyword)) {
-            return new ArrayList<>();
-        }
-
-        List<DocumentChunk> chunks = documentChunkRepository.searchByKeyword(keyword);
-        List<ChunkResponse> results = new ArrayList<>();
-
-        int max = Math.min(limit, chunks.size());
-        for (int i = 0; i < max; i++) {
-            DocumentChunk chunk = chunks.get(i);
-            ChunkResponse item = new ChunkResponse();
-            item.setDocumentId(chunk.getDocumentId());
-            item.setChunkIndex(chunk.getChunkIndex());
-            item.setContent(chunk.getContent());
-            item.setHighlightContent(buildHighlightContent(chunk.getContent(), keyword));
-            results.add(item);
-        }
-
-        return results;
+    public SearchResult searchByQuestion(String question) {
+        String keyword = extractKeyword(question);
+        return searchByKeyword(keyword);
     }
 
-    private String buildHighlightContent(String content, String keyword) {
-        if (!StringUtils.hasText(content)) {
-            return content;
+    private String extractKeyword(String question) {
+        if (!StringUtils.hasText(question)) {
+            return "";
         }
 
-        String trimmed = content.trim();
-        if (!StringUtils.hasText(keyword)) {
-            return buildSummary(trimmed, 120);
+        String originalQuestion = question.trim();
+        String cleaned = removeQuestionWords(originalQuestion);
+        cleaned = removePunctuation(cleaned);
+        cleaned = cleaned.trim();
+
+        if (StringUtils.hasText(cleaned)) {
+            return cleaned;
         }
 
-        int index = trimmed.toLowerCase(Locale.ROOT).indexOf(keyword.toLowerCase(Locale.ROOT));
-        if (index < 0) {
-            return buildSummary(trimmed, 120);
-        }
-
-        int start = Math.max(0, index - 35);
-        int end = Math.min(trimmed.length(), index + keyword.length() + 35);
-
-        String prefix = start > 0 ? "..." : "";
-        String suffix = end < trimmed.length() ? "..." : "";
-        String matched = trimmed.substring(index, index + keyword.length());
-        String snippet = trimmed.substring(start, index)
-                + "[[" + matched + "]]"
-                + trimmed.substring(index + keyword.length(), end);
-        return prefix + snippet + suffix;
+        String fallback = removePunctuation(originalQuestion).trim();
+        return StringUtils.hasText(fallback) ? fallback : originalQuestion;
     }
 
-    private String buildSummary(String content, int maxLength) {
-        if (!StringUtils.hasText(content)) {
-            return content;
+    private String normalizeKeyword(String keyword) {
+        if (!StringUtils.hasText(keyword)) {
+            return "";
         }
-        if (content.length() <= maxLength) {
-            return content;
+        return removePunctuation(keyword).trim();
+    }
+
+    private String removeQuestionWords(String text) {
+        String result = text;
+        result = result.replace("\u4ec0\u4e48\u662f", "");
+        result = result.replace("\u662f\u4ec0\u4e48", "");
+        result = result.replace("\u662f\u5565", "");
+        result = result.replace("\u4ecb\u7ecd\u4e00\u4e0b", "");
+        result = result.replace("\u8bf7\u8bf4\u660e", "");
+        result = result.replace("\u8bf7\u4ecb\u7ecd", "");
+        result = result.replace("\u8bf7\u95ee", "");
+        result = result.replaceAll("(?i)\\bhow\\b", "");
+        result = result.replaceAll("(?i)\\bwhat\\b", "");
+        result = result.replaceAll("(?i)\\bwhy\\b", "");
+        result = result.replaceAll("(?i)\\bwho\\b", "");
+        result = result.replaceAll("(?i)\\bwhen\\b", "");
+        result = result.replaceAll("(?i)\\bwhere\\b", "");
+        return result;
+    }
+
+    private String removePunctuation(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
         }
-        return content.substring(0, maxLength) + "...";
+
+        String result = text;
+        result = result.replace("?", " ");
+        result = result.replace("\uff1f", " ");
+        result = result.replace(".", " ");
+        result = result.replace("\u3002", " ");
+        result = result.replace(",", " ");
+        result = result.replace("\uff0c", " ");
+        result = result.replace("!", " ");
+        result = result.replace("\uff01", " ");
+        result = result.replace(":", " ");
+        result = result.replace("\uff1a", " ");
+        result = result.replace(";", " ");
+        result = result.replace("\uff1b", " ");
+        result = result.replace("\u3001", " ");
+        result = result.replace("\u201c", " ");
+        result = result.replace("\u201d", " ");
+        result = result.replace("\"", " ");
+        result = result.replace("'", " ");
+        result = result.replace("\uff08", " ");
+        result = result.replace("\uff09", " ");
+        result = result.replace("(", " ");
+        result = result.replace(")", " ");
+        result = result.replace("[", " ");
+        result = result.replace("]", " ");
+        result = result.replace("\u3010", " ");
+        result = result.replace("\u3011", " ");
+        result = result.replaceAll("\\s+", " ");
+        return result;
     }
 }
