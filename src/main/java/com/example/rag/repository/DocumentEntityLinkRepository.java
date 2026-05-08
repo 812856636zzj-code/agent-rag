@@ -7,7 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
-public interface DocumentEntityLinkRepository extends JpaRepository<DocumentEntityLink, Long> {
+public interface DocumentEntityLinkRepository extends JpaRepository<DocumentEntityLink, Long>, DocumentEntityLinkRepositoryCustom {
 
     void deleteByDocumentId(Long documentId);
 

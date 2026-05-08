@@ -1,12 +1,16 @@
 package com.example.rag.service;
 
 import com.example.rag.dto.ChunkHit;
-import com.example.rag.dto.EntityHit;
+import com.example.rag.dto.EntitySearchHit;
+import com.example.rag.dto.HybridSearchResult;
+import com.example.rag.dto.QueryEntity;
 import com.example.rag.dto.SearchMeta;
 import com.example.rag.dto.SearchResult;
 import com.example.rag.entity.DocumentChunk;
-import com.example.rag.repository.DocumentEntityLinkRepository;
 import com.example.rag.repository.DocumentChunkRepository;
+import com.example.rag.repository.DocumentEntityLinkRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -16,7 +20,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -24,16 +27,18 @@ import java.util.stream.Collectors;
 @Service
 public class SearchServiceImpl implements SearchService {
 
+    private static final Logger log = LoggerFactory.getLogger(SearchServiceImpl.class);
+
     private final DocumentChunkRepository documentChunkRepository;
     private final DocumentEntityLinkRepository documentEntityLinkRepository;
-    private final EntityExtractionService entityExtractionService;
+    private final QueryEntityExtractionService queryEntityExtractionService;
 
     public SearchServiceImpl(DocumentChunkRepository documentChunkRepository,
                              DocumentEntityLinkRepository documentEntityLinkRepository,
-                             EntityExtractionService entityExtractionService) {
+                             QueryEntityExtractionService queryEntityExtractionService) {
         this.documentChunkRepository = documentChunkRepository;
         this.documentEntityLinkRepository = documentEntityLinkRepository;
-        this.entityExtractionService = entityExtractionService;
+        this.queryEntityExtractionService = queryEntityExtractionService;
     }
 
     @Override
@@ -48,55 +53,136 @@ public class SearchServiceImpl implements SearchService {
     public SearchResult searchByEntity(String keywordOrQuestion) {
         long start = System.currentTimeMillis();
         String cleanedKeyword = normalizeKeyword(keywordOrQuestion);
-        List<EntityHit> queryEntities = entityExtractionService.extractEntities(keywordOrQuestion);
-        List<DocumentChunk> entityChunks = fetchEntityChunks(queryEntities);
-        return buildSearchResult(cleanedKeyword, entityChunks, System.currentTimeMillis() - start);
+        List<QueryEntity> queryEntities = queryEntityExtractionService.extractQueryEntities(keywordOrQuestion);
+        log.info("entity search question = {}", keywordOrQuestion);
+        log.info("entity search extracted query entities = {}", queryEntities.stream()
+                .map(QueryEntity::getNormalizedText)
+                .collect(Collectors.toList()));
+
+        if (queryEntities.isEmpty()) {
+            SearchResult emptyResult = buildSearchResult(cleanedKeyword, new ArrayList<>(), System.currentTimeMillis() - start);
+            log.info("entity search hit rows = 0");
+            log.info("entity search final chunk count = 0");
+            return emptyResult;
+        }
+
+        List<Object[]> rows = fetchEntitySearchRows(queryEntities);
+        log.info("entity search hit rows = {}", rows.size());
+
+        List<EntitySearchHit> entityHits = toEntitySearchHits(rows);
+        entityHits.sort(Comparator
+                .comparingInt((EntitySearchHit hit) -> hit.getEntityHitCount() == null ? 0 : hit.getEntityHitCount()).reversed()
+                .thenComparing((EntitySearchHit hit) -> hit.getDocumentId() == null ? Long.MIN_VALUE : hit.getDocumentId(), Comparator.reverseOrder())
+                .thenComparing(hit -> hit.getChunkIndex() == null ? Integer.MAX_VALUE : hit.getChunkIndex()));
+
+        List<ChunkHit> matchedChunks = new ArrayList<>();
+        for (EntitySearchHit hit : entityHits) {
+            ChunkHit chunkHit = new ChunkHit();
+            chunkHit.setChunkId(hit.getChunkId());
+            chunkHit.setDocumentId(hit.getDocumentId());
+            chunkHit.setChunkIndex(hit.getChunkIndex());
+            chunkHit.setContent(hit.getContent());
+            chunkHit.setTokenCount(null);
+            matchedChunks.add(chunkHit);
+        }
+
+        SearchMeta searchMeta = new SearchMeta();
+        searchMeta.setKeyword(cleanedKeyword);
+        searchMeta.setTotalHits(matchedChunks.size());
+        searchMeta.setCostMs(System.currentTimeMillis() - start);
+
+        SearchResult result = new SearchResult();
+        result.setKeyword(cleanedKeyword);
+        result.setMatchedChunks(matchedChunks);
+        result.setMatchedDocumentIds(extractMatchedDocumentIds(matchedChunks));
+        result.setSearchMeta(searchMeta);
+        log.info("entity search final chunk count = {}", matchedChunks.size());
+        return result;
     }
 
     @Override
-    public SearchResult searchHybrid(String question) {
-        long start = System.currentTimeMillis();
+    public HybridSearchResult searchHybrid(String question) {
         String keyword = extractKeyword(question);
-        List<DocumentChunk> keywordChunks = fetchKeywordChunks(keyword);
-        List<EntityHit> queryEntities = entityExtractionService.extractEntities(question);
-        Map<Long, Integer> entityHitCountMap = fetchEntityHitCountMap(queryEntities);
-        List<DocumentChunk> entityChunks = fetchChunksByIds(new ArrayList<>(entityHitCountMap.keySet()));
+        SearchResult keywordSearchResult = searchByKeyword(keyword);
+        SearchResult entitySearchResult = searchByEntity(question);
+        List<QueryEntity> queryEntities = queryEntityExtractionService.extractQueryEntities(question);
+        List<Object[]> entityRows = fetchEntitySearchRows(queryEntities);
+        List<EntitySearchHit> entityHits = toEntitySearchHits(entityRows);
+        Map<Long, Integer> entityHitCountByChunkId = extractEntityHitCountMap(entityHits);
 
-        Set<Long> keywordChunkIds = keywordChunks.stream()
-                .map(DocumentChunk::getId)
-                .filter(id -> id != null)
+        List<ChunkHit> keywordHits = safeChunkHits(keywordSearchResult.getMatchedChunks());
+        List<ChunkHit> entityChunks = safeChunkHits(entitySearchResult.getMatchedChunks());
+
+        Set<String> keywordKeys = keywordHits.stream()
+                .map(this::buildChunkKey)
+                .collect(Collectors.toCollection(HashSet::new));
+        Set<String> entityKeys = entityChunks.stream()
+                .map(this::buildChunkKey)
                 .collect(Collectors.toCollection(HashSet::new));
 
-        Map<Long, DocumentChunk> mergedChunkMap = new HashMap<>();
-        for (DocumentChunk chunk : keywordChunks) {
-            if (chunk != null && chunk.getId() != null) {
-                mergedChunkMap.put(chunk.getId(), chunk);
-            }
+        Map<String, ChunkHit> mergedMap = new HashMap<>();
+        for (ChunkHit hit : keywordHits) {
+            mergedMap.put(buildChunkKey(hit), hit);
         }
-        for (DocumentChunk chunk : entityChunks) {
-            if (chunk != null && chunk.getId() != null) {
-                mergedChunkMap.put(chunk.getId(), chunk);
-            }
+        for (ChunkHit hit : entityChunks) {
+            mergedMap.putIfAbsent(buildChunkKey(hit), hit);
         }
 
-        List<DocumentChunk> mergedChunks = new ArrayList<>(mergedChunkMap.values());
-        mergedChunks.sort((left, right) -> compareHybrid(left, right, keywordChunkIds, entityHitCountMap));
-        return buildSearchResult(keyword, mergedChunks, System.currentTimeMillis() - start);
+        List<ChunkHit> mergedChunks = new ArrayList<>(mergedMap.values());
+        mergedChunks.sort((left, right) -> compareHybrid(left, right, keywordKeys, entityKeys, entityHitCountByChunkId));
+        if (mergedChunks.size() > 10) {
+            mergedChunks = new ArrayList<>(mergedChunks.subList(0, 10));
+        }
+
+        log.info("hybrid search question = {}", question);
+        log.info("hybrid search keyword = {}", keyword);
+        log.info("hybrid search keywordHits count = {}", keywordHits.size());
+        log.info("hybrid search queryEntities = {}", queryEntities.stream()
+                .map(QueryEntity::getNormalizedText)
+                .collect(Collectors.toList()));
+        log.info("hybrid search entityHits count = {}", entityHits.size());
+        log.info("hybrid search mergedChunks count = {}", mergedChunks.size());
+
+        HybridSearchResult result = new HybridSearchResult();
+        result.setQuestion(question);
+        result.setKeyword(keyword);
+        result.setQueryEntities(queryEntities);
+        result.setKeywordHits(keywordHits);
+        result.setEntityHits(entityHits);
+        result.setMergedChunks(mergedChunks);
+        result.setEntityHitCountByChunkId(entityHitCountByChunkId);
+        result.setRetrievalMode("HYBRID");
+        return result;
     }
 
     @Override
     public SearchResult searchByQuestion(String question) {
-        return searchHybrid(question);
+        HybridSearchResult hybridSearchResult = searchHybrid(question);
+
+        SearchMeta searchMeta = new SearchMeta();
+        searchMeta.setKeyword(hybridSearchResult.getKeyword());
+        searchMeta.setTotalHits(hybridSearchResult.getMergedChunks().size());
+
+        SearchResult result = new SearchResult();
+        result.setKeyword(hybridSearchResult.getKeyword());
+        result.setMatchedChunks(hybridSearchResult.getMergedChunks());
+        result.setMatchedDocumentIds(extractMatchedDocumentIds(hybridSearchResult.getMergedChunks()));
+        result.setSearchMeta(searchMeta);
+        return result;
     }
 
-    private int compareHybrid(DocumentChunk left,
-                              DocumentChunk right,
-                              Set<Long> keywordChunkIds,
-                              Map<Long, Integer> entityHitCountMap) {
-        boolean leftKeyword = left.getId() != null && keywordChunkIds.contains(left.getId());
-        boolean rightKeyword = right.getId() != null && keywordChunkIds.contains(right.getId());
-        boolean leftEntity = left.getId() != null && entityHitCountMap.containsKey(left.getId());
-        boolean rightEntity = right.getId() != null && entityHitCountMap.containsKey(right.getId());
+    private int compareHybrid(ChunkHit left,
+                              ChunkHit right,
+                              Set<String> keywordKeys,
+                              Set<String> entityKeys,
+                              Map<Long, Integer> entityHitCountByChunkId) {
+        String leftKey = buildChunkKey(left);
+        String rightKey = buildChunkKey(right);
+
+        boolean leftKeyword = keywordKeys.contains(leftKey);
+        boolean rightKeyword = keywordKeys.contains(rightKey);
+        boolean leftEntity = entityKeys.contains(leftKey);
+        boolean rightEntity = entityKeys.contains(rightKey);
 
         int leftBoth = leftKeyword && leftEntity ? 1 : 0;
         int rightBoth = rightKeyword && rightEntity ? 1 : 0;
@@ -104,8 +190,8 @@ public class SearchServiceImpl implements SearchService {
             return Integer.compare(rightBoth, leftBoth);
         }
 
-        int leftEntityCount = left.getId() == null ? 0 : entityHitCountMap.getOrDefault(left.getId(), 0);
-        int rightEntityCount = right.getId() == null ? 0 : entityHitCountMap.getOrDefault(right.getId(), 0);
+        int leftEntityCount = left.getChunkId() == null ? 0 : entityHitCountByChunkId.getOrDefault(left.getChunkId(), 0);
+        int rightEntityCount = right.getChunkId() == null ? 0 : entityHitCountByChunkId.getOrDefault(right.getChunkId(), 0);
         if (leftEntityCount != rightEntityCount) {
             return Integer.compare(rightEntityCount, leftEntityCount);
         }
@@ -128,62 +214,67 @@ public class SearchServiceImpl implements SearchService {
         return documentChunkRepository.searchByKeyword(keyword);
     }
 
-    private List<DocumentChunk> fetchEntityChunks(List<EntityHit> queryEntities) {
-        Map<Long, Integer> entityHitCountMap = fetchEntityHitCountMap(queryEntities);
-        List<DocumentChunk> chunks = fetchChunksByIds(new ArrayList<>(entityHitCountMap.keySet()));
-        chunks.sort(Comparator
-                .comparingInt((DocumentChunk chunk) -> entityHitCountMap.getOrDefault(chunk.getId(), 0)).reversed()
-                .thenComparing(chunk -> chunk.getChunkIndex() == null ? Integer.MAX_VALUE : chunk.getChunkIndex())
-                .thenComparing((DocumentChunk chunk) -> chunk.getDocumentId() == null ? Long.MIN_VALUE : chunk.getDocumentId(), Comparator.reverseOrder()));
-        return chunks;
-    }
-
-    private Map<Long, Integer> fetchEntityHitCountMap(List<EntityHit> queryEntities) {
+    private List<Object[]> fetchEntitySearchRows(List<QueryEntity> queryEntities) {
         List<String> normalizedNames = queryEntities.stream()
-                .map(EntityHit::getNormalizedName)
+                .map(QueryEntity::getNormalizedText)
                 .filter(StringUtils::hasText)
-                .map(name -> name.toLowerCase(Locale.ROOT))
                 .distinct()
                 .collect(Collectors.toList());
-
-        Map<Long, Integer> entityHitCountMap = new HashMap<>();
         if (normalizedNames.isEmpty()) {
-            return entityHitCountMap;
-        }
-
-        List<Object[]> rows = documentEntityLinkRepository.countEntityMatchesByNormalizedNames(normalizedNames);
-        for (Object[] row : rows) {
-            if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
-                continue;
-            }
-            Long chunkId = ((Number) row[0]).longValue();
-            Integer entityCount = ((Number) row[1]).intValue();
-            entityHitCountMap.put(chunkId, entityCount);
-        }
-        return entityHitCountMap;
-    }
-
-    private List<DocumentChunk> fetchChunksByIds(List<Long> chunkIds) {
-        if (chunkIds == null || chunkIds.isEmpty()) {
             return new ArrayList<>();
         }
+        return documentEntityLinkRepository.searchChunksByEntityNormalizedNames(normalizedNames);
+    }
 
-        List<DocumentChunk> chunks = documentChunkRepository.findByIdIn(chunkIds);
-        Map<Long, DocumentChunk> chunkMap = new HashMap<>();
-        for (DocumentChunk chunk : chunks) {
-            if (chunk != null && chunk.getId() != null) {
-                chunkMap.put(chunk.getId(), chunk);
+    private List<EntitySearchHit> toEntitySearchHits(List<Object[]> rows) {
+        Map<Long, EntitySearchHit> hitMap = new HashMap<>();
+        Map<Long, Set<String>> normalizedNameMap = new HashMap<>();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 7 || row[0] == null) {
+                continue;
+            }
+
+            Long chunkId = ((Number) row[0]).longValue();
+            EntitySearchHit hit = hitMap.get(chunkId);
+            if (hit == null) {
+                hit = new EntitySearchHit();
+                hit.setChunkId(chunkId);
+                hit.setDocumentId(row[1] == null ? null : ((Number) row[1]).longValue());
+                hit.setChunkIndex(row[2] == null ? null : ((Number) row[2]).intValue());
+                hit.setContent(row[3] == null ? null : String.valueOf(row[3]));
+                hit.setEntityHitCount(0);
+                hit.setScore(0.0d);
+                hitMap.put(chunkId, hit);
+                normalizedNameMap.put(chunkId, new HashSet<>());
+            }
+
+            String entityName = row[4] == null ? null : String.valueOf(row[4]);
+            String entityType = row[5] == null ? null : String.valueOf(row[5]);
+            String normalizedName = row[6] == null ? null : String.valueOf(row[6]);
+
+            if (StringUtils.hasText(entityName) && !hit.getMatchedEntityNames().contains(entityName)) {
+                hit.getMatchedEntityNames().add(entityName);
+            }
+            if (StringUtils.hasText(entityType) && !hit.getMatchedEntityTypes().contains(entityType)) {
+                hit.getMatchedEntityTypes().add(entityType);
+            }
+            Set<String> normalizedNames = normalizedNameMap.get(chunkId);
+            if (StringUtils.hasText(normalizedName) && normalizedNames.add(normalizedName)) {
+                hit.setEntityHitCount(hit.getEntityHitCount() + 1);
+                hit.setScore(hit.getEntityHitCount().doubleValue());
             }
         }
+        return new ArrayList<>(hitMap.values());
+    }
 
-        List<DocumentChunk> orderedChunks = new ArrayList<>();
-        for (Long chunkId : chunkIds) {
-            DocumentChunk chunk = chunkMap.get(chunkId);
-            if (chunk != null) {
-                orderedChunks.add(chunk);
+    private Map<Long, Integer> extractEntityHitCountMap(List<EntitySearchHit> entitySearchHits) {
+        Map<Long, Integer> entityHitCountByChunkId = new HashMap<>();
+        for (EntitySearchHit hit : entitySearchHits) {
+            if (hit.getChunkId() != null) {
+                entityHitCountByChunkId.put(hit.getChunkId(), hit.getEntityHitCount() == null ? 0 : hit.getEntityHitCount());
             }
         }
-        return orderedChunks;
+        return entityHitCountByChunkId;
     }
 
     private SearchResult buildSearchResult(String keyword, List<DocumentChunk> chunks, long costMs) {
@@ -192,6 +283,7 @@ public class SearchServiceImpl implements SearchService {
 
         for (DocumentChunk chunk : chunks) {
             ChunkHit hit = new ChunkHit();
+            hit.setChunkId(chunk.getId());
             hit.setDocumentId(chunk.getDocumentId());
             hit.setChunkIndex(chunk.getChunkIndex());
             hit.setContent(chunk.getContent());
@@ -214,6 +306,27 @@ public class SearchServiceImpl implements SearchService {
         result.setMatchedDocumentIds(matchedDocumentIds);
         result.setSearchMeta(searchMeta);
         return result;
+    }
+
+    private List<Long> extractMatchedDocumentIds(List<ChunkHit> matchedChunks) {
+        LinkedHashSet<Long> matchedDocumentIdSet = new LinkedHashSet<>();
+        for (ChunkHit chunk : matchedChunks) {
+            if (chunk.getDocumentId() != null) {
+                matchedDocumentIdSet.add(chunk.getDocumentId());
+            }
+        }
+        return new ArrayList<>(matchedDocumentIdSet);
+    }
+
+    private List<ChunkHit> safeChunkHits(List<ChunkHit> hits) {
+        return hits == null ? new ArrayList<>() : new ArrayList<>(hits);
+    }
+
+    private String buildChunkKey(ChunkHit hit) {
+        if (hit.getChunkId() != null) {
+            return "id:" + hit.getChunkId();
+        }
+        return "doc:" + hit.getDocumentId() + ":idx:" + hit.getChunkIndex();
     }
 
     private String extractKeyword(String question) {

@@ -1,0 +1,19 @@
+Day 3 entity extraction verification note
+
+This RAG demo exposes several HTTP endpoints for ingestion and retrieval. A user can upload a document through /upload, verify chunk hits through /search, and ask a question through /ask. These APIs are part of the same Spring Boot service and are intended to work together during the Day 3 verification flow.
+
+The current Oracle schema includes business tables such as RAG_DOCUMENTS and RAG_DOCUMENT_CHUNKS. For entity extraction, two new tables are introduced: RAG_ENTITIES and RAG_DOCUMENT_ENTITY_LINKS. The extraction result should also recognize field-level information like embeddingStatus, documentId, chunkIndex, and chunkContent. In the entity tables, upper-case fields such as ENTITY_NAME and NORMALIZED_NAME are also important for persistence and deduplication.
+
+Runtime configuration is still based on application.yml. Typical keys include spring.datasource.url and server.port. These values are used by the Spring Boot application during startup, and they are part of the configuration context that the extraction logic should be able to identify as CONFIG entities.
+
+From the service layer perspective, SearchService handles unified retrieval, ContextBuilderService assembles structured context, and EntityExtractionService is responsible for rule-based extraction during ingestion. In the DTO and model layer, classes such as AskContext, ChunkHit, and SearchResult are frequently referenced in the codebase and should be recognized as CLASS entities.
+
+When the ingestion flow runs, methods like saveChunks(...), extractEntities(...), and buildContext(...) appear in the implementation description. Database-side keyword retrieval may also mention dbms_lob.instr, which should be identified as a METHOD-style entity because it represents a concrete callable name in the system.
+
+Several execution states are meaningful in the current demo, including SUCCESS, FAILED, PENDING, and EMBEDDING_DONE. These values may appear in processing logs or status fields and should be captured as STATUS entities.
+
+The project also depends on several libraries and frameworks. PDF parsing currently uses PDFBox. Some code generation scenarios may mention Lombok, although this demo mainly uses plain Java beans. The runtime framework is Spring Boot, and the database is Oracle. These names should be extracted as LIBRARY entities.
+
+File system paths are also relevant to the ingestion process. Uploaded files are stored under D:/rag_api/uploads/, and source code is located in directories such as src/main/java/com/example/rag/service/. Both examples should be identified as PATH entities during extraction.
+
+Overall, this text is designed to simulate a realistic project note instead of a raw checklist. After the file is uploaded, the ingestion pipeline should create chunks, extract entities, and persist the links so that the Day 3 acceptance check can confirm the entity extraction pipeline is working end to end.

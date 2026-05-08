@@ -4,7 +4,7 @@ import com.example.rag.dto.AskContext;
 import com.example.rag.dto.AskResponse;
 import com.example.rag.dto.ChunkHit;
 import com.example.rag.dto.ChunkResponse;
-import com.example.rag.dto.SearchResult;
+import com.example.rag.dto.HybridSearchResult;
 import com.example.rag.entity.QueryLog;
 import com.example.rag.repository.QueryLogRepository;
 import org.slf4j.Logger;
@@ -44,11 +44,15 @@ public class AskServiceImpl implements AskService {
         log.info("question = {}", question);
         log.info("keyword = {}", keyword);
 
-        SearchResult searchResult = searchService.searchByQuestion(question);
-        int matchedChunkCount = searchResult.getMatchedChunks() == null ? 0 : searchResult.getMatchedChunks().size();
-        log.info("matchedChunks size = {}", matchedChunkCount);
-        String finalKeyword = StringUtils.hasText(searchResult.getKeyword()) ? searchResult.getKeyword() : keyword;
-        AskContext askContext = contextBuilderService.buildContext(question, finalKeyword, searchResult.getMatchedChunks());
+        HybridSearchResult hybridSearchResult = searchService.searchHybrid(question);
+        List<ChunkHit> mergedChunks = hybridSearchResult.getMergedChunks() == null
+                ? new ArrayList<>()
+                : hybridSearchResult.getMergedChunks();
+        int mergedChunkCount = mergedChunks.size();
+        log.info("mergedChunks size = {}", mergedChunkCount);
+
+        String finalKeyword = StringUtils.hasText(hybridSearchResult.getKeyword()) ? hybridSearchResult.getKeyword() : keyword;
+        AskContext askContext = contextBuilderService.buildContext(question, finalKeyword, mergedChunks);
         int topChunkCount = askContext.getTopChunks() == null ? 0 : askContext.getTopChunks().size();
         log.info("context top chunks size = {}", topChunkCount);
 
@@ -63,6 +67,11 @@ public class AskServiceImpl implements AskService {
         response.setChunks(chunks);
         response.setStructuredContext(askContext.getStructuredContext());
         response.setAnswer(answer);
+        response.setQueryEntities(hybridSearchResult.getQueryEntities());
+        response.setKeywordHitCount(hybridSearchResult.getKeywordHits() == null ? 0 : hybridSearchResult.getKeywordHits().size());
+        response.setEntityHitCount(hybridSearchResult.getEntityHits() == null ? 0 : hybridSearchResult.getEntityHits().size());
+        response.setMergedChunkCount(mergedChunkCount);
+        response.setRetrievalMode(hybridSearchResult.getRetrievalMode());
 
         Long sourceDocId = chunks.isEmpty() ? null : chunks.get(0).getDocumentId();
         long responseTimeMs = System.currentTimeMillis() - start;
