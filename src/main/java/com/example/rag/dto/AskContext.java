@@ -7,9 +7,11 @@ public class AskContext {
 
     private String question;
     private String keyword;
-    private List<ChunkResponse> topChunks = new ArrayList<>();
-    private List<Long> sourceDocIds = new ArrayList<>();
+    private List<ChunkHit> matchedChunks = new ArrayList<>();
+    private List<ChunkHit> topChunks = new ArrayList<>();
     private String structuredContext;
+    private List<Long> sourceDocIds = new ArrayList<>();
+    private List<String> answerHints = new ArrayList<>();
 
     public String getQuestion() {
         return question;
@@ -27,12 +29,28 @@ public class AskContext {
         this.keyword = keyword;
     }
 
-    public List<ChunkResponse> getTopChunks() {
+    public List<ChunkHit> getMatchedChunks() {
+        return matchedChunks;
+    }
+
+    public void setMatchedChunks(List<ChunkHit> matchedChunks) {
+        this.matchedChunks = matchedChunks;
+    }
+
+    public List<ChunkHit> getTopChunks() {
         return topChunks;
     }
 
-    public void setTopChunks(List<ChunkResponse> topChunks) {
+    public void setTopChunks(List<ChunkHit> topChunks) {
         this.topChunks = topChunks;
+    }
+
+    public String getStructuredContext() {
+        return structuredContext;
+    }
+
+    public void setStructuredContext(String structuredContext) {
+        this.structuredContext = structuredContext;
     }
 
     public List<Long> getSourceDocIds() {
@@ -43,11 +61,11 @@ public class AskContext {
         this.sourceDocIds = sourceDocIds;
     }
 
-    public String getStructuredContext() {
-        return structuredContext;
+    public List<String> getAnswerHints() {
+        return answerHints;
     }
 
-    public void setStructuredContext(String structuredContext) {
-        this.structuredContext = structuredContext;
+    public void setAnswerHints(List<String> answerHints) {
+        this.answerHints = answerHints;
     }
 }

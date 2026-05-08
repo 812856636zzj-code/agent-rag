@@ -53,20 +53,6 @@ public class DocumentChunkService {
         return filterNoiseChunks(chunks);
     }
 
-    public List<Map<String, Object>> searchChunks(String keyword) {
-        List<DocumentChunk> chunks = filterNoiseChunks(documentChunkRepository.searchByKeyword(keyword));
-        List<Map<String, Object>> results = new ArrayList<>();
-        for (DocumentChunk chunk : chunks) {
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("documentId", chunk.getDocumentId());
-            item.put("chunkIndex", chunk.getChunkIndex());
-            item.put("content", truncateContent(chunk.getContent()));
-            item.put("highlightContent", buildHighlightSnippet(chunk.getContent(), keyword));
-            results.add(item);
-        }
-        return results;
-    }
-
     public List<Map<String, Object>> getPendingChunks() {
         List<DocumentChunk> chunks = filterNoiseChunks(
                 documentChunkRepository.findByEmbeddingStatusOrderByDocumentIdDescChunkIndexAsc("PENDING")
@@ -168,35 +154,4 @@ public class DocumentChunkService {
         return false;
     }
 
-    private String truncateContent(String content) {
-        if (content == null) {
-            return null;
-        }
-        if (content.length() <= 200) {
-            return content;
-        }
-        return content.substring(0, 200);
-    }
-
-    private String buildHighlightSnippet(String content, String keyword) {
-        if (!StringUtils.hasText(content)) {
-            return content;
-        }
-        if (!StringUtils.hasText(keyword)) {
-            return truncateContent(content);
-        }
-
-        String lowerContent = content.toLowerCase();
-        String lowerKeyword = keyword.toLowerCase();
-        int index = lowerContent.indexOf(lowerKeyword);
-        if (index < 0) {
-            return truncateContent(content);
-        }
-
-        int start = Math.max(0, index - 40);
-        int end = Math.min(content.length(), index + keyword.length() + 40);
-        String snippet = content.substring(start, end);
-        String matched = content.substring(index, index + keyword.length());
-        return snippet.replaceFirst(java.util.regex.Pattern.quote(matched), "[[" + matched + "]]");
-    }
 }

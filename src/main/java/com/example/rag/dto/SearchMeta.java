@@ -1,12 +1,18 @@
 package com.example.rag.dto;
 
-import java.util.ArrayList;
-import java.util.List;
-
 public class SearchMeta {
 
+    private String keyword;
     private Integer totalHits;
-    private List<Long> matchedDocumentIds = new ArrayList<>();
+    private Long costMs;
+
+    public String getKeyword() {
+        return keyword;
+    }
+
+    public void setKeyword(String keyword) {
+        this.keyword = keyword;
+    }
 
     public Integer getTotalHits() {
         return totalHits;
@@ -16,11 +22,11 @@ public class SearchMeta {
         this.totalHits = totalHits;
     }
 
-    public List<Long> getMatchedDocumentIds() {
-        return matchedDocumentIds;
+    public Long getCostMs() {
+        return costMs;
     }
 
-    public void setMatchedDocumentIds(List<Long> matchedDocumentIds) {
-        this.matchedDocumentIds = matchedDocumentIds;
+    public void setCostMs(Long costMs) {
+        this.costMs = costMs;
     }
 }
