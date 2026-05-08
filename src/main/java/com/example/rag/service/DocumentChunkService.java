@@ -1,6 +1,7 @@
 package com.example.rag.service;
 
 import com.example.rag.dto.EntityHit;
+import com.example.rag.dto.RelationBuildResult;
 import com.example.rag.entity.DocumentChunk;
 import com.example.rag.repository.DocumentChunkRepository;
 import org.slf4j.Logger;
@@ -41,13 +42,16 @@ public class DocumentChunkService {
     private final DocumentChunkRepository documentChunkRepository;
     private final EntityExtractionService entityExtractionService;
     private final EntityPersistenceService entityPersistenceService;
+    private final RelationBuilderService relationBuilderService;
 
     public DocumentChunkService(DocumentChunkRepository documentChunkRepository,
                                 EntityExtractionService entityExtractionService,
-                                EntityPersistenceService entityPersistenceService) {
+                                EntityPersistenceService entityPersistenceService,
+                                RelationBuilderService relationBuilderService) {
         this.documentChunkRepository = documentChunkRepository;
         this.entityExtractionService = entityExtractionService;
         this.entityPersistenceService = entityPersistenceService;
+        this.relationBuilderService = relationBuilderService;
     }
 
     @Transactional
@@ -111,6 +115,21 @@ public class DocumentChunkService {
                         chunk.getContent(),
                         entities
                 );
+                try {
+                    RelationBuildResult relationBuildResult = relationBuilderService.buildRelationsForChunk(
+                            documentId,
+                            chunk.getId(),
+                            chunk.getContent()
+                    );
+                    int relationCount = relationBuildResult == null || relationBuildResult.getRelationCount() == null
+                            ? 0
+                            : relationBuildResult.getRelationCount();
+                    log.info("relation build result, documentId = {}, chunkId = {}, chunkIndex = {}, relationCount = {}",
+                            documentId, chunk.getId(), chunk.getChunkIndex(), relationCount);
+                } catch (RuntimeException relationEx) {
+                    log.error("relation build failed, documentId = {}, chunkId = {}, chunkIndex = {}",
+                            documentId, chunk.getId(), chunk.getChunkIndex(), relationEx);
+                }
             } catch (RuntimeException ex) {
                 log.error("entity extraction failed, documentId = {}, chunkId = {}",
                         documentId, chunk.getId(), ex);

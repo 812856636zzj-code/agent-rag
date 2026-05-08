@@ -14,6 +14,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+import java.sql.Clob;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -241,7 +243,7 @@ public class SearchServiceImpl implements SearchService {
                 hit.setChunkId(chunkId);
                 hit.setDocumentId(row[1] == null ? null : ((Number) row[1]).longValue());
                 hit.setChunkIndex(row[2] == null ? null : ((Number) row[2]).intValue());
-                hit.setContent(row[3] == null ? null : String.valueOf(row[3]));
+                hit.setContent(clobToString(row[3]));
                 hit.setEntityHitCount(0);
                 hit.setScore(0.0d);
                 hitMap.put(chunkId, hit);
@@ -320,6 +322,21 @@ public class SearchServiceImpl implements SearchService {
 
     private List<ChunkHit> safeChunkHits(List<ChunkHit> hits) {
         return hits == null ? new ArrayList<>() : new ArrayList<>(hits);
+    }
+
+    private String clobToString(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof Clob) {
+            Clob clob = (Clob) value;
+            try {
+                return clob.getSubString(1, (int) clob.length());
+            } catch (SQLException ex) {
+                throw new IllegalStateException("read clob content failed", ex);
+            }
+        }
+        return String.valueOf(value);
     }
 
     private String buildChunkKey(ChunkHit hit) {

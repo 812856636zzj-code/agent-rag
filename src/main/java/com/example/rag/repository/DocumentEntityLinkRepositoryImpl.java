@@ -44,7 +44,7 @@ public class DocumentEntityLinkRepositoryImpl implements DocumentEntityLinkRepos
         sql.append(" c.ID as CHUNK_ID,");
         sql.append(" c.DOCUMENT_ID,");
         sql.append(" c.CHUNK_INDEX,");
-        sql.append(" c.CONTENT,");
+        sql.append(" DBMS_LOB.SUBSTR(c.CONTENT, 4000, 1) as CONTENT,");
         sql.append(" e.ENTITY_NAME,");
         sql.append(" e.ENTITY_TYPE,");
         sql.append(" e.NORMALIZED_NAME");
