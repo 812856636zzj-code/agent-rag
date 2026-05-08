@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Demo</title>
+    <style>
+        :root {
+            --bg: #f4efe6;
+            --panel: #fffaf2;
+            --panel-strong: #fff;
+            --line: #d9cdbd;
+            --text: #2d241b;
+            --muted: #6f6255;
+            --accent: #1f6f5f;
+            --accent-dark: #174f44;
+            --danger: #a33b2b;
+            --shadow: 0 18px 45px rgba(77, 57, 32, 0.12);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(31, 111, 95, 0.12), transparent 24%),
+                radial-gradient(circle at top right, rgba(196, 142, 72, 0.16), transparent 28%),
+                linear-gradient(180deg, #f8f4ed 0%, var(--bg) 100%);
+            min-height: 100vh;
+        }
+
+        .page {
+            max-width: 1040px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+
+        .hero {
+            margin-bottom: 24px;
+        }
+
+        .eyebrow {
+            display: inline-block;
+            padding: 6px 10px;
+            border: 1px solid rgba(31, 111, 95, 0.2);
+            border-radius: 999px;
+            color: var(--accent);
+            background: rgba(255, 255, 255, 0.72);
+            font-size: 12px;
+            letter-spacing: 0.08em;
+        }
+
+        h1 {
+            margin: 14px 0 8px;
+            font-size: clamp(30px, 5vw, 52px);
+            line-height: 1.02;
+            font-weight: 800;
+        }
+
+        .sub {
+            margin: 0;
+            max-width: 760px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 18px;
+            margin-top: 28px;
+        }
+
+        .card {
+            grid-column: span 12;
+            background: rgba(255, 250, 242, 0.88);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(217, 205, 189, 0.8);
+            border-radius: 20px;
+            box-shadow: var(--shadow);
+            padding: 20px;
+        }
+
+        .upload-card {
+            grid-column: span 12;
+        }
+
+        .query-card {
+            grid-column: span 6;
+        }
+
+        .card h2 {
+            margin: 0 0 6px;
+            font-size: 18px;
+        }
+
+        .card p {
+            margin: 0 0 16px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .field-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        input[type="file"],
+        input[type="text"],
+        input[type="number"] {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--panel-strong);
+            padding: 12px 14px;
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+        }
+
+        input:focus {
+            border-color: rgba(31, 111, 95, 0.72);
+            box-shadow: 0 0 0 4px rgba(31, 111, 95, 0.12);
+            transform: translateY(-1px);
+        }
+
+        .grow {
+            flex: 1 1 280px;
+        }
+
+        button {
+            border: none;
+            border-radius: 14px;
+            padding: 12px 18px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+            box-shadow: 0 10px 24px rgba(31, 111, 95, 0.2);
+        }
+
+        button:hover {
+            background: var(--accent-dark);
+            transform: translateY(-1px);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status {
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(217, 205, 189, 0.9);
+            color: var(--text);
+            min-height: 48px;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+
+        .status.error {
+            color: var(--danger);
+            border-color: rgba(163, 59, 43, 0.25);
+            background: rgba(255, 243, 240, 0.95);
+        }
+
+        .results {
+            margin-top: 8px;
+            display: grid;
+            gap: 14px;
+        }
+
+        .result-toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .result-meta {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .result-card {
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(217, 205, 189, 0.85);
+            border-radius: 18px;
+            padding: 16px;
+            box-shadow: 0 8px 18px rgba(51, 38, 21, 0.06);
+        }
+
+        .result-head {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: #f2ede6;
+            color: var(--text);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .label {
+            color: var(--muted);
+        }
+
+        .content {
+            margin: 0;
+            color: var(--text);
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .highlight {
+            display: inline;
+            background: linear-gradient(120deg, rgba(245, 204, 110, 0.2), rgba(245, 204, 110, 0.65));
+            padding: 0 4px;
+            border-radius: 6px;
+            font-weight: 700;
+        }
+
+        .empty {
+            padding: 30px 18px;
+            border: 1px dashed rgba(111, 98, 85, 0.35);
+            border-radius: 18px;
+            text-align: center;
+            color: var(--muted);
+            background: rgba(255, 255, 255, 0.45);
+        }
+
+        @media (max-width: 820px) {
+            .query-card {
+                grid-column: span 12;
+            }
+
+            .page {
+                padding: 20px 14px 36px;
+            }
+
+            .card {
+                padding: 16px;
+                border-radius: 18px;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <section class="hero">
+        <span class="eyebrow">RAG API DEMO</span>
+        <h1>Upload text, inspect chunks, search, and ask questions</h1>
+        <p class="sub">
+            Minimal demo page for the current Spring Boot project. It directly calls:
+            <code>/upload</code>, <code>/documents/{documentId}/chunks</code>, <code>/search</code>, and <code>/ask</code>.
+        </p>
+    </section>
+
+    <section class="grid">
+        <div class="card upload-card">
+            <h2>File Upload</h2>
+            <p>Upload a txt or pdf file. The backend stores the document and generates chunks.</p>
+            <div class="field-row">
+                <div class="grow">
+                    <input id="fileInput" type="file" accept=".txt,.pdf">
+                </div>
+                <button id="uploadButton" type="button">Upload File</button>
+            </div>
+            <div id="uploadStatus" class="status">Waiting for upload.</div>
+        </div>
+
+        <div class="card query-card">
+            <h2>Query By DocumentId</h2>
+            <p>Enter a document id to view all chunks under that document.</p>
+            <div class="field-row">
+                <div class="grow">
+                    <input id="documentIdInput" type="number" min="1" placeholder="Enter documentId">
+                </div>
+                <button id="documentQueryButton" type="button">Query Chunks</button>
+            </div>
+        </div>
+
+        <div class="card query-card">
+            <h2>Search By Keyword</h2>
+            <p>Enter a keyword to search chunk content with LIKE matching.</p>
+            <div class="field-row">
+                <div class="grow">
+                    <input id="keywordInput" type="text" placeholder="Enter keyword">
+                </div>
+                <button id="keywordQueryButton" type="button">Search Keyword</button>
+            </div>
+        </div>
+
+        <div class="card upload-card">
+            <h2>Ask Question</h2>
+            <p>Send a natural-language question to the minimal Agent-style ask endpoint.</p>
+            <div class="field-row">
+                <div class="grow">
+                    <input id="questionInput" type="text" placeholder="Enter question, for example: 党组织是什么？">
+                </div>
+                <button id="askButton" type="button">Ask</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="result-toolbar">
+                <div>
+                    <h2>Results</h2>
+                    <p>Show upload status, chunk query results, keyword search results, and ask responses.</p>
+                </div>
+                <div id="resultMeta" class="result-meta">No results yet</div>
+            </div>
+            <div id="results" class="results">
+                <div class="empty">No results yet. Upload a file, query by documentId / keyword, or ask a question.</div>
+            </div>
+        </div>
+    </section>
+</div>
+
+<script>
+    const fileInput = document.getElementById('fileInput');
+    const uploadButton = document.getElementById('uploadButton');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const documentIdInput = document.getElementById('documentIdInput');
+    const documentQueryButton = document.getElementById('documentQueryButton');
+    const keywordInput = document.getElementById('keywordInput');
+    const keywordQueryButton = document.getElementById('keywordQueryButton');
+    const questionInput = document.getElementById('questionInput');
+    const askButton = document.getElementById('askButton');
+    const results = document.getElementById('results');
+    const resultMeta = document.getElementById('resultMeta');
+
+    uploadButton.addEventListener('click', uploadFile);
+    documentQueryButton.addEventListener('click', queryByDocumentId);
+    keywordQueryButton.addEventListener('click', queryByKeyword);
+    askButton.addEventListener('click', askQuestion);
+
+    async function uploadFile() {
+        const file = fileInput.files[0];
+        if (!file) {
+            setUploadStatus('Please select a file first.', true);
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        setUploadStatus('Uploading...', false);
+        uploadButton.disabled = true;
+
+        try {
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const text = await response.text();
+            if (!response.ok) {
+                setUploadStatus(text || 'Upload failed', true);
+                return;
+            }
+            setUploadStatus(text || 'upload success', false);
+        } catch (error) {
+            setUploadStatus('Request failed: ' + error.message, true);
+        } finally {
+            uploadButton.disabled = false;
+        }
+    }
+
+    async function queryByDocumentId() {
+        const documentId = documentIdInput.value.trim();
+        if (!documentId) {
+            renderEmpty('Please enter documentId.');
+            return;
+        }
+
+        documentQueryButton.disabled = true;
+        try {
+            const response = await fetch('/documents/' + encodeURIComponent(documentId) + '/chunks');
+            const data = await response.json();
+            if (!response.ok) {
+                renderEmpty('Query failed.');
+                return;
+            }
+            renderResults(data, 'document');
+        } catch (error) {
+            renderEmpty('Request failed: ' + error.message);
+        } finally {
+            documentQueryButton.disabled = false;
+        }
+    }
+
+    async function queryByKeyword() {
+        const keyword = keywordInput.value.trim();
+        if (!keyword) {
+            renderEmpty('Please enter keyword.');
+            return;
+        }
+
+        keywordQueryButton.disabled = true;
+        try {
+            const response = await fetch('/search?keyword=' + encodeURIComponent(keyword));
+            const data = await response.json();
+            if (!response.ok) {
+                renderEmpty('Search failed.');
+                return;
+            }
+            renderResults(data, 'search');
+        } catch (error) {
+            renderEmpty('Request failed: ' + error.message);
+        } finally {
+            keywordQueryButton.disabled = false;
+        }
+    }
+
+    async function askQuestion() {
+        const question = questionInput.value.trim();
+        if (!question) {
+            renderEmpty('Please enter question.');
+            return;
+        }
+
+        askButton.disabled = true;
+        try {
+            const response = await fetch('/ask', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ question: question })
+            });
+            const data = await response.json();
+            if (!response.ok) {
+                renderEmpty(data.answer || 'Ask failed.');
+                return;
+            }
+            renderAskResult(data);
+        } catch (error) {
+            renderEmpty('Request failed: ' + error.message);
+        } finally {
+            askButton.disabled = false;
+        }
+    }
+
+    function setUploadStatus(message, isError) {
+        uploadStatus.textContent = message;
+        uploadStatus.classList.toggle('error', Boolean(isError));
+    }
+
+    function renderResults(items, type) {
+        if (!Array.isArray(items) || items.length === 0) {
+            renderEmpty('No results found.');
+            return;
+        }
+
+        resultMeta.textContent = items.length + ' result(s)';
+        results.innerHTML = items.map(item => buildResultCard(item, type)).join('');
+    }
+
+    function renderAskResult(data) {
+        const chunks = Array.isArray(data.chunks) ? data.chunks : [];
+        resultMeta.textContent = 'Ask result';
+        const answerCard = `
+            <article class="result-card">
+                <div class="result-head">
+                    <span class="pill"><span class="label">question</span>${escapeHtml(String(valueOrDash(data.question)))}</span>
+                    <span class="pill"><span class="label">keyword</span>${escapeHtml(String(valueOrDash(data.keyword)))}</span>
+                </div>
+                <p class="content">${formatContent(data.answer || '')}</p>
+            </article>
+        `;
+        const chunkCards = chunks.map(item => buildResultCard(item, 'ask')).join('');
+        results.innerHTML = answerCard + (chunkCards || '<div class="empty">No chunks returned.</div>');
+    }
+
+    function renderEmpty(message) {
+        resultMeta.textContent = 'No results';
+        results.innerHTML = '<div class="empty">' + escapeHtml(message) + '</div>';
+    }
+
+    function buildResultCard(item, type) {
+        const documentId = valueOrDash(item.documentId);
+        const chunkIndex = valueOrDash(item.chunkIndex);
+        const content = type === 'search'
+            ? (item.highlightContent || item.content || '')
+            : (item.content || '');
+
+        return `
+            <article class="result-card">
+                <div class="result-head">
+                    <span class="pill"><span class="label">documentId</span>${escapeHtml(String(documentId))}</span>
+                    <span class="pill"><span class="label">chunkIndex</span>${escapeHtml(String(chunkIndex))}</span>
+                </div>
+                <p class="content">${formatContent(content)}</p>
+            </article>
+        `;
+    }
+
+    function formatContent(text) {
+        const safe = escapeHtml(String(text || ''));
+        return safe.replace(/\[\[(.*?)\]\]/g, '<span class="highlight">$1</span>');
+    }
+
+    function valueOrDash(value) {
+        return value === undefined || value === null || value === '' ? '-' : value;
+    }
+
+    function escapeHtml(text) {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+</script>
+</body>
+</html>
