@@ -1,0 +1,12 @@
+RAG API 接口说明
+
+/search 接口用于根据关键词检索文档分块。
+当前 /search 的排序规则是 DOCUMENT_ID DESC, CHUNK_INDEX ASC。
+其中 DOCUMENT_ID DESC 表示优先返回较新的文档。
+CHUNK_INDEX ASC 表示同一文档内按照分块顺序从前到后返回。
+/search 的检索方式使用 dbms_lob.instr 对 chunk 内容进行关键词匹配。
+
+/ask 接口用于接收自然语言问题。
+/ask 会先从 question 中提取 keyword，然后调用 SearchService 检索相关 chunk。
+检索结果会交给 ContextBuilderService 构造 structuredContext。
+最后由 AnswerBuilderService 根据 structuredContext 和 answerHints 生成回答。

@@ -12,6 +12,8 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, Lo
 
     List<DocumentChunk> findByDocumentIdOrderByChunkIndexAsc(Long documentId);
 
+    List<DocumentChunk> findByIdIn(List<Long> ids);
+
     void deleteByDocumentId(Long documentId);
 
     @Query(value = "select * from RAG_DOCUMENT_CHUNKS " +
