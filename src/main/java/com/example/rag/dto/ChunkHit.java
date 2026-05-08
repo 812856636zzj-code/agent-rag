@@ -2,10 +2,19 @@ package com.example.rag.dto;
 
 public class ChunkHit {
 
+    private Long chunkId;
     private Long documentId;
     private Integer chunkIndex;
     private String content;
     private Integer tokenCount;
+
+    public Long getChunkId() {
+        return chunkId;
+    }
+
+    public void setChunkId(Long chunkId) {
+        this.chunkId = chunkId;
+    }
 
     public Long getDocumentId() {
         return documentId;

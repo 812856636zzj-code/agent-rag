@@ -10,6 +10,11 @@ public class AskResponse {
     private List<ChunkResponse> chunks = new ArrayList<>();
     private String structuredContext;
     private String answer;
+    private List<QueryEntity> queryEntities = new ArrayList<>();
+    private Integer keywordHitCount;
+    private Integer entityHitCount;
+    private Integer mergedChunkCount;
+    private String retrievalMode;
 
     public String getQuestion() {
         return question;
@@ -49,5 +54,45 @@ public class AskResponse {
 
     public void setAnswer(String answer) {
         this.answer = answer;
+    }
+
+    public List<QueryEntity> getQueryEntities() {
+        return queryEntities;
+    }
+
+    public void setQueryEntities(List<QueryEntity> queryEntities) {
+        this.queryEntities = queryEntities;
+    }
+
+    public Integer getKeywordHitCount() {
+        return keywordHitCount;
+    }
+
+    public void setKeywordHitCount(Integer keywordHitCount) {
+        this.keywordHitCount = keywordHitCount;
+    }
+
+    public Integer getEntityHitCount() {
+        return entityHitCount;
+    }
+
+    public void setEntityHitCount(Integer entityHitCount) {
+        this.entityHitCount = entityHitCount;
+    }
+
+    public Integer getMergedChunkCount() {
+        return mergedChunkCount;
+    }
+
+    public void setMergedChunkCount(Integer mergedChunkCount) {
+        this.mergedChunkCount = mergedChunkCount;
+    }
+
+    public String getRetrievalMode() {
+        return retrievalMode;
+    }
+
+    public void setRetrievalMode(String retrievalMode) {
+        this.retrievalMode = retrievalMode;
     }
 }
