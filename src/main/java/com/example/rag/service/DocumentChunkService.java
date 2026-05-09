@@ -1,7 +1,11 @@
 package com.example.rag.service;
 
+import com.example.rag.dto.EntityHit;
+import com.example.rag.dto.RelationBuildResult;
 import com.example.rag.entity.DocumentChunk;
 import com.example.rag.repository.DocumentChunkRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -17,6 +21,7 @@ import java.util.Locale;
 @Service
 public class DocumentChunkService {
 
+    private static final Logger log = LoggerFactory.getLogger(DocumentChunkService.class);
     private static final int CHUNK_SIZE = 500;
     private static final List<String> NOISE_KEYWORDS = Arrays.asList(
             "classpath",
@@ -35,15 +40,27 @@ public class DocumentChunkService {
     );
 
     private final DocumentChunkRepository documentChunkRepository;
+    private final EntityExtractionService entityExtractionService;
+    private final EntityPersistenceService entityPersistenceService;
+    private final RelationBuilderService relationBuilderService;
 
-    public DocumentChunkService(DocumentChunkRepository documentChunkRepository) {
+    public DocumentChunkService(DocumentChunkRepository documentChunkRepository,
+                                EntityExtractionService entityExtractionService,
+                                EntityPersistenceService entityPersistenceService,
+                                RelationBuilderService relationBuilderService) {
         this.documentChunkRepository = documentChunkRepository;
+        this.entityExtractionService = entityExtractionService;
+        this.entityPersistenceService = entityPersistenceService;
+        this.relationBuilderService = relationBuilderService;
     }
 
+    @Transactional
     public int saveChunks(Long documentId, String text) {
         List<DocumentChunk> chunks = buildChunks(documentId, text);
         if (!chunks.isEmpty()) {
-            documentChunkRepository.saveAll(chunks);
+            List<DocumentChunk> savedChunks = documentChunkRepository.saveAll(chunks);
+            log.info("chunks saved, documentId = {}, chunkCount = {}", documentId, savedChunks.size());
+            extractAndPersistEntities(documentId, savedChunks);
         }
         return chunks.size();
     }
@@ -77,8 +94,47 @@ public class DocumentChunkService {
 
     @Transactional
     public int rebuildChunks(Long documentId, String text) {
+        entityPersistenceService.deleteLinksByDocumentId(documentId);
         documentChunkRepository.deleteByDocumentId(documentId);
         return saveChunks(documentId, text);
+    }
+
+    private void extractAndPersistEntities(Long documentId, List<DocumentChunk> savedChunks) {
+        for (DocumentChunk chunk : savedChunks) {
+            if (chunk == null || !StringUtils.hasText(chunk.getContent())) {
+                continue;
+            }
+
+            try {
+                List<EntityHit> entities = entityExtractionService.extractEntities(chunk.getContent());
+                log.info("entity extraction result, documentId = {}, chunkCount = {}, chunkId = {}, chunkIndex = {}, entityCount = {}",
+                        documentId, savedChunks.size(), chunk.getId(), chunk.getChunkIndex(), entities.size());
+                entityPersistenceService.saveChunkEntities(
+                        documentId,
+                        chunk.getId(),
+                        chunk.getContent(),
+                        entities
+                );
+                try {
+                    RelationBuildResult relationBuildResult = relationBuilderService.buildRelationsForChunk(
+                            documentId,
+                            chunk.getId(),
+                            chunk.getContent()
+                    );
+                    int relationCount = relationBuildResult == null || relationBuildResult.getRelationCount() == null
+                            ? 0
+                            : relationBuildResult.getRelationCount();
+                    log.info("relation build result, documentId = {}, chunkId = {}, chunkIndex = {}, relationCount = {}",
+                            documentId, chunk.getId(), chunk.getChunkIndex(), relationCount);
+                } catch (RuntimeException relationEx) {
+                    log.error("relation build failed, documentId = {}, chunkId = {}, chunkIndex = {}",
+                            documentId, chunk.getId(), chunk.getChunkIndex(), relationEx);
+                }
+            } catch (RuntimeException ex) {
+                log.error("entity extraction failed, documentId = {}, chunkId = {}",
+                        documentId, chunk.getId(), ex);
+            }
+        }
     }
 
     public String cleanText(String text) {

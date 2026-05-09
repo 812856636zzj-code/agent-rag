@@ -6,10 +6,19 @@ import java.util.List;
 public class AskResponse {
 
     private String question;
+    private String mode;
+    private List<SourceItem> sources = new ArrayList<>();
+    private List<RelationPathItem> relationPaths = new ArrayList<>();
+    private AskDebugInfo debug;
     private String keyword;
-    private List<ChunkResponse> chunks = new ArrayList<>();
+    private List<ChunkHit> chunks = new ArrayList<>();
     private String structuredContext;
     private String answer;
+    private List<QueryEntity> queryEntities = new ArrayList<>();
+    private Integer keywordHitCount;
+    private Integer entityHitCount;
+    private Integer mergedChunkCount;
+    private String retrievalMode;
 
     public String getQuestion() {
         return question;
@@ -17,6 +26,38 @@ public class AskResponse {
 
     public void setQuestion(String question) {
         this.question = question;
+    }
+
+    public String getMode() {
+        return mode;
+    }
+
+    public void setMode(String mode) {
+        this.mode = mode;
+    }
+
+    public List<SourceItem> getSources() {
+        return sources;
+    }
+
+    public void setSources(List<SourceItem> sources) {
+        this.sources = sources;
+    }
+
+    public List<RelationPathItem> getRelationPaths() {
+        return relationPaths;
+    }
+
+    public void setRelationPaths(List<RelationPathItem> relationPaths) {
+        this.relationPaths = relationPaths;
+    }
+
+    public AskDebugInfo getDebug() {
+        return debug;
+    }
+
+    public void setDebug(AskDebugInfo debug) {
+        this.debug = debug;
     }
 
     public String getKeyword() {
@@ -27,11 +68,11 @@ public class AskResponse {
         this.keyword = keyword;
     }
 
-    public List<ChunkResponse> getChunks() {
+    public List<ChunkHit> getChunks() {
         return chunks;
     }
 
-    public void setChunks(List<ChunkResponse> chunks) {
+    public void setChunks(List<ChunkHit> chunks) {
         this.chunks = chunks;
     }
 
@@ -49,5 +90,45 @@ public class AskResponse {
 
     public void setAnswer(String answer) {
         this.answer = answer;
+    }
+
+    public List<QueryEntity> getQueryEntities() {
+        return queryEntities;
+    }
+
+    public void setQueryEntities(List<QueryEntity> queryEntities) {
+        this.queryEntities = queryEntities;
+    }
+
+    public Integer getKeywordHitCount() {
+        return keywordHitCount;
+    }
+
+    public void setKeywordHitCount(Integer keywordHitCount) {
+        this.keywordHitCount = keywordHitCount;
+    }
+
+    public Integer getEntityHitCount() {
+        return entityHitCount;
+    }
+
+    public void setEntityHitCount(Integer entityHitCount) {
+        this.entityHitCount = entityHitCount;
+    }
+
+    public Integer getMergedChunkCount() {
+        return mergedChunkCount;
+    }
+
+    public void setMergedChunkCount(Integer mergedChunkCount) {
+        this.mergedChunkCount = mergedChunkCount;
+    }
+
+    public String getRetrievalMode() {
+        return retrievalMode;
+    }
+
+    public void setRetrievalMode(String retrievalMode) {
+        this.retrievalMode = retrievalMode;
     }
 }

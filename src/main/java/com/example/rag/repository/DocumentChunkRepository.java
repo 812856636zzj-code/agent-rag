@@ -12,17 +12,23 @@ public interface DocumentChunkRepository extends JpaRepository<DocumentChunk, Lo
 
     List<DocumentChunk> findByDocumentIdOrderByChunkIndexAsc(Long documentId);
 
+    List<DocumentChunk> findByIdIn(List<Long> ids);
+
     void deleteByDocumentId(Long documentId);
 
-    @Query(value = "select * from RAG_DOCUMENT_CHUNKS " +
-            "where dbms_lob.instr(CONTENT, :keyword) > 0 " +
-            "order by DOCUMENT_ID desc, CHUNK_INDEX asc", nativeQuery = true)
+    @Query(value = "select c.* from RAG_DOCUMENT_CHUNKS c " +
+            "join RAG_DOCUMENTS d on d.ID = c.DOCUMENT_ID " +
+            "where d.DOCUMENT_TYPE = 'KNOWLEDGE' " +
+            "and dbms_lob.instr(c.CONTENT, :keyword) > 0 " +
+            "order by c.DOCUMENT_ID desc, c.CHUNK_INDEX asc", nativeQuery = true)
     List<DocumentChunk> searchByKeyword(@Param("keyword") String keyword);
 
     @Query(value = "select * from (" +
-            "select * from RAG_DOCUMENT_CHUNKS " +
-            "where dbms_lob.instr(CONTENT, :keyword) > 0 " +
-            "order by DOCUMENT_ID desc, CHUNK_INDEX asc" +
+            "select c.* from RAG_DOCUMENT_CHUNKS c " +
+            "join RAG_DOCUMENTS d on d.ID = c.DOCUMENT_ID " +
+            "where d.DOCUMENT_TYPE = 'KNOWLEDGE' " +
+            "and dbms_lob.instr(c.CONTENT, :keyword) > 0 " +
+            "order by c.DOCUMENT_ID desc, c.CHUNK_INDEX asc" +
             ") where rownum <= 5", nativeQuery = true)
     List<DocumentChunk> searchTop5ByKeyword(@Param("keyword") String keyword);
 
