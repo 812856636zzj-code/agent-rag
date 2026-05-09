@@ -6,6 +6,10 @@ import java.util.List;
 public class AskResponse {
 
     private String question;
+    private String mode;
+    private List<SourceItem> sources = new ArrayList<>();
+    private List<RelationPathItem> relationPaths = new ArrayList<>();
+    private AskDebugInfo debug;
     private String keyword;
     private List<ChunkHit> chunks = new ArrayList<>();
     private String structuredContext;
@@ -22,6 +26,38 @@ public class AskResponse {
 
     public void setQuestion(String question) {
         this.question = question;
+    }
+
+    public String getMode() {
+        return mode;
+    }
+
+    public void setMode(String mode) {
+        this.mode = mode;
+    }
+
+    public List<SourceItem> getSources() {
+        return sources;
+    }
+
+    public void setSources(List<SourceItem> sources) {
+        this.sources = sources;
+    }
+
+    public List<RelationPathItem> getRelationPaths() {
+        return relationPaths;
+    }
+
+    public void setRelationPaths(List<RelationPathItem> relationPaths) {
+        this.relationPaths = relationPaths;
+    }
+
+    public AskDebugInfo getDebug() {
+        return debug;
+    }
+
+    public void setDebug(AskDebugInfo debug) {
+        this.debug = debug;
     }
 
     public String getKeyword() {

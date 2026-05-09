@@ -30,11 +30,13 @@ public class RelationStorageServiceImpl implements RelationStorageService {
                                             RelationType relationType,
                                             Long documentId,
                                             Long chunkId,
-                                            String evidenceText) {
+                                            String evidenceText,
+                                            Double confidence) {
         boolean exists = ragEntityRelationRepository.existsBySourceEntityIdAndTargetEntityIdAndRelationTypeAndDocumentIdAndChunkId(
                 sourceEntityId, targetEntityId, relationType.name(), documentId, chunkId
         );
 
+        Date now = new Date();
         if (!exists) {
             RagEntityRelation relation = new RagEntityRelation();
             relation.setSourceEntityId(sourceEntityId);
@@ -43,7 +45,8 @@ public class RelationStorageServiceImpl implements RelationStorageService {
             relation.setDocumentId(documentId);
             relation.setChunkId(chunkId);
             relation.setEvidenceText(evidenceText);
-            relation.setCreatedAt(new Date());
+            relation.setConfidence(confidence);
+            relation.setCreateTime(now);
             ragEntityRelationRepository.save(relation);
         }
 
@@ -58,6 +61,8 @@ public class RelationStorageServiceImpl implements RelationStorageService {
         hit.setDocumentId(documentId);
         hit.setChunkId(chunkId);
         hit.setEvidenceText(evidenceText);
+        hit.setConfidence(confidence);
+        hit.setCreateTime(now);
         return hit;
     }
 

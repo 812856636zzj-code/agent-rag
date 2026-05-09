@@ -1,6 +1,13 @@
 package com.example.rag.enums;
 
 public enum RelationType {
+    API_USES_TABLE,
+    TABLE_HAS_FIELD,
+    SERVICE_HAS_CLASS,
+    CLASS_HAS_METHOD,
+    SERVICE_CALLS_SERVICE,
+    API_BELONGS_TO_SERVICE,
+    MENTIONED_WITH,
     DEFINED_IN,
     DEPENDS_ON,
     USES,

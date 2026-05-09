@@ -12,6 +12,8 @@ public class RelationHit {
     private Long documentId;
     private Long chunkId;
     private String evidenceText;
+    private Double confidence;
+    private java.util.Date createTime;
 
     public Long getSourceEntityId() {
         return sourceEntityId;
@@ -91,5 +93,21 @@ public class RelationHit {
 
     public void setEvidenceText(String evidenceText) {
         this.evidenceText = evidenceText;
+    }
+
+    public Double getConfidence() {
+        return confidence;
+    }
+
+    public void setConfidence(Double confidence) {
+        this.confidence = confidence;
+    }
+
+    public java.util.Date getCreateTime() {
+        return createTime;
+    }
+
+    public void setCreateTime(java.util.Date createTime) {
+        this.createTime = createTime;
     }
 }

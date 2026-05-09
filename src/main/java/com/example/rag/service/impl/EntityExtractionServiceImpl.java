@@ -138,7 +138,7 @@ public class EntityExtractionServiceImpl implements EntityExtractionService {
 
     private void collectFields(Map<String, EntityHit> hits, String text) {
         addPatternMatches(hits, text, CAMEL_FIELD_PATTERN, EntityType.FIELD);
-        addPatternMatches(hits, text, UPPER_FIELD_PATTERN, EntityType.FIELD);
+        collectUppercaseFields(hits, text);
     }
 
     private void collectConfigs(Map<String, EntityHit> hits, String text) {
@@ -185,6 +185,19 @@ public class EntityExtractionServiceImpl implements EntityExtractionService {
         }
     }
 
+    private void collectUppercaseFields(Map<String, EntityHit> hits, String text) {
+        Matcher matcher = UPPER_FIELD_PATTERN.matcher(text);
+        while (matcher.find()) {
+            String value = matcher.group();
+            if (TABLE_PATTERN.matcher(value).matches()) {
+                continue;
+            }
+            if (shouldTreatAsSchemaField(text, value)) {
+                addHit(hits, value, EntityType.FIELD);
+            }
+        }
+    }
+
     private void addLiteralMatch(Map<String, EntityHit> hits, String text, String literal, EntityType entityType) {
         int start = 0;
         while (start >= 0 && start < text.length()) {
@@ -225,5 +238,39 @@ public class EntityExtractionServiceImpl implements EntityExtractionService {
         String cleaned = value.trim();
         cleaned = cleaned.replaceAll("[,;:]+$", "");
         return cleaned;
+    }
+
+    private boolean shouldTreatAsSchemaField(String text, String fieldName) {
+        if (!StringUtils.hasText(fieldName)) {
+            return false;
+        }
+        if (containsSchemaHints(text)) {
+            return true;
+        }
+        return endsWithAny(fieldName, "_ID", "_TYPE", "_TIME", "_TEXT", "_STATUS", "_COUNT")
+                || "ID".equals(fieldName)
+                || "CONFIDENCE".equals(fieldName)
+                || "CREATED_AT".equals(fieldName);
+    }
+
+    private boolean containsSchemaHints(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+        return lower.contains("create table")
+                || lower.contains(" table ")
+                || lower.contains("字段")
+                || lower.contains("column")
+                || lower.contains("列");
+    }
+
+    private boolean endsWithAny(String value, String... suffixes) {
+        for (String suffix : suffixes) {
+            if (value.endsWith(suffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

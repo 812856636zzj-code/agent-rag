@@ -1,11 +1,14 @@
 package com.example.rag.service.impl;
 
+import com.example.rag.dto.EntityHit;
 import com.example.rag.dto.RelationBuildResult;
 import com.example.rag.dto.RelationHit;
 import com.example.rag.entity.DocumentChunk;
 import com.example.rag.enums.RelationType;
 import com.example.rag.repository.DocumentChunkRepository;
 import com.example.rag.repository.DocumentEntityLinkRepository;
+import com.example.rag.service.EntityExtractionService;
+import com.example.rag.service.EntityStorageService;
 import com.example.rag.service.RelationBuilderService;
 import com.example.rag.service.RelationStorageService;
 import org.slf4j.Logger;
@@ -14,28 +17,47 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class RelationBuilderServiceImpl implements RelationBuilderService {
 
     private static final Logger log = LoggerFactory.getLogger(RelationBuilderServiceImpl.class);
     private static final int MAX_RELATED_ENTITIES = 30;
+    private static final Pattern DATABASE_COLUMN_PATTERN = Pattern.compile("^[A-Z][A-Z0-9_]*$");
+    private static final Set<String> SQL_KEYWORD_BLACKLIST = new HashSet<>(Arrays.asList(
+            "ORDER", "BY", "ASC", "DESC", "SELECT", "FROM", "WHERE", "GROUP", "HAVING",
+            "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON", "AND", "OR", "NOT", "NULL",
+            "IS", "IN", "AS"
+    ));
+    private static final Set<String> DOCUMENT_TYPE_BLACKLIST = new HashSet<>(Arrays.asList(
+            "PDF", "MD", "JSON", "TXT", "DOC", "DOCX"
+    ));
 
     private final DocumentEntityLinkRepository documentEntityLinkRepository;
     private final DocumentChunkRepository documentChunkRepository;
+    private final EntityExtractionService entityExtractionService;
+    private final EntityStorageService entityStorageService;
     private final RelationStorageService relationStorageService;
 
     public RelationBuilderServiceImpl(DocumentEntityLinkRepository documentEntityLinkRepository,
                                       DocumentChunkRepository documentChunkRepository,
+                                      EntityExtractionService entityExtractionService,
+                                      EntityStorageService entityStorageService,
                                       RelationStorageService relationStorageService) {
         this.documentEntityLinkRepository = documentEntityLinkRepository;
         this.documentChunkRepository = documentChunkRepository;
+        this.entityExtractionService = entityExtractionService;
+        this.entityStorageService = entityStorageService;
         this.relationStorageService = relationStorageService;
     }
 
@@ -44,25 +66,25 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
         RelationBuildResult result = new RelationBuildResult();
         result.setDocumentId(documentId);
         result.setChunkId(chunkId);
+        result.setChunkCount(1);
 
         if (documentId == null || chunkId == null) {
             return result;
         }
 
-        List<EntityRef> entities = loadChunkEntities(documentId, chunkId);
+        List<EntityRef> entities = loadChunkEntities(documentId, chunkId, chunkText);
         result.setEntityCount(entities.size());
         if (entities.size() < 2) {
             return result;
         }
 
-        Map<String, EntityRef> entityMap = new LinkedHashMap<>();
-        for (EntityRef entity : entities) {
-            entityMap.putIfAbsent(entity.getNormalizedName(), entity);
-        }
+        List<EntityRef> uniqueEntities = deduplicateEntities(entities);
+        Map<String, EntityRef> entityMap = buildNormalizedEntityMap(uniqueEntities);
 
-        buildCoOccurrenceRelations(documentId, chunkId, chunkText, new ArrayList<>(entityMap.values()), result);
+        buildBaseRelations(documentId, chunkId, chunkText, uniqueEntities, result);
+        buildCoOccurrenceRelations(documentId, chunkId, chunkText, uniqueEntities, result);
         buildSpecificRelations(documentId, chunkId, chunkText, entityMap, result);
-        result.setRelationCount(result.getRelations().size());
+        finalizeResultCounts(result);
         return result;
     }
 
@@ -73,26 +95,39 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
         relationStorageService.deleteByDocumentId(documentId);
 
         List<DocumentChunk> chunks = documentChunkRepository.findByDocumentIdOrderByChunkIndexAsc(documentId);
+        summary.setChunkCount(chunks.size());
         int totalEntities = 0;
         int totalRelations = 0;
+        int totalTableHasField = 0;
+        int totalApiUsesTable = 0;
+        int totalMentionedWith = 0;
         List<RelationHit> relations = new ArrayList<>();
 
         for (DocumentChunk chunk : chunks) {
             RelationBuildResult chunkResult = buildRelationsForChunk(documentId, chunk.getId(), chunk.getContent());
             totalEntities += chunkResult.getEntityCount();
             totalRelations += chunkResult.getRelationCount();
+            totalTableHasField += safeInt(chunkResult.getCreatedTableHasFieldCount());
+            totalApiUsesTable += safeInt(chunkResult.getCreatedApiUsesTableCount());
+            totalMentionedWith += safeInt(chunkResult.getCreatedMentionedWithCount());
             relations.addAll(chunkResult.getRelations());
         }
 
         summary.setEntityCount(totalEntities);
         summary.setRelationCount(totalRelations);
+        summary.setCreatedTableHasFieldCount(totalTableHasField);
+        summary.setCreatedApiUsesTableCount(totalApiUsesTable);
+        summary.setCreatedMentionedWithCount(totalMentionedWith);
         summary.setRelations(relations);
+        log.info("relation rebuild completed, documentId = {}, chunkCount = {}, entityCount = {}, createdRelationCount = {}, createdTableHasFieldCount = {}, createdApiUsesTableCount = {}, createdMentionedWithCount = {}",
+                documentId, summary.getChunkCount(), totalEntities, totalRelations, totalTableHasField, totalApiUsesTable, totalMentionedWith);
         return summary;
     }
 
-    private List<EntityRef> loadChunkEntities(Long documentId, Long chunkId) {
+    private List<EntityRef> loadChunkEntities(Long documentId, Long chunkId, String chunkText) {
+        Map<String, EntityRef> entityMap = new LinkedHashMap<>();
+
         List<Object[]> rows = documentEntityLinkRepository.findEntitiesByDocumentIdAndChunkId(documentId, chunkId);
-        List<EntityRef> entities = new ArrayList<>();
         for (Object[] row : rows) {
             if (row == null || row.length < 5 || row[0] == null) {
                 continue;
@@ -103,9 +138,13 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
             ref.setEntityType(row[2] == null ? null : String.valueOf(row[2]));
             ref.setNormalizedName(row[3] == null ? null : String.valueOf(row[3]).toLowerCase(Locale.ROOT));
             ref.setSourceText(row[4] == null ? null : String.valueOf(row[4]));
-            entities.add(ref);
+            entityMap.putIfAbsent(buildEntityKey(ref.getEntityType(), ref.getNormalizedName()), ref);
         }
-        return entities;
+
+        if (StringUtils.hasText(chunkText)) {
+            mergeExtractedEntities(documentId, chunkId, chunkText, entityMap);
+        }
+        return new ArrayList<>(entityMap.values());
     }
 
     private void buildCoOccurrenceRelations(Long documentId,
@@ -125,7 +164,55 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
 
         for (int i = 0; i < filtered.size(); i++) {
             for (int j = i + 1; j < filtered.size(); j++) {
-                saveRelation(documentId, chunkId, chunkText, filtered.get(i), filtered.get(j), RelationType.RELATED_TO, result);
+                saveRelation(documentId, chunkId, chunkText, filtered.get(i), filtered.get(j), RelationType.MENTIONED_WITH, 0.35d, result);
+            }
+        }
+    }
+
+    private void buildBaseRelations(Long documentId,
+                                    Long chunkId,
+                                    String chunkText,
+                                    List<EntityRef> entities,
+                                    RelationBuildResult result) {
+        List<EntityRef> apis = filterByType(entities, "API");
+        List<EntityRef> tables = filterByType(entities, "TABLE");
+        List<EntityRef> fields = filterByType(entities, "FIELD");
+        List<EntityRef> services = filterByType(entities, "SERVICE");
+        List<EntityRef> classes = filterByType(entities, "CLASS");
+        List<EntityRef> methods = filterByType(entities, "METHOD");
+
+        for (EntityRef api : apis) {
+            for (EntityRef service : services) {
+                saveRelation(documentId, chunkId, chunkText, api, service, RelationType.API_BELONGS_TO_SERVICE, 0.85d, result);
+            }
+            for (EntityRef table : tables) {
+                saveRelation(documentId, chunkId, chunkText, api, table, RelationType.API_USES_TABLE, 0.8d, result);
+            }
+        }
+
+        for (EntityRef table : tables) {
+            for (EntityRef field : fields) {
+                if (shouldCreateTableHasFieldRelation(chunkText, table, field)) {
+                    saveRelation(documentId, chunkId, chunkText, table, field, RelationType.TABLE_HAS_FIELD, 0.9d, result);
+                }
+            }
+        }
+
+        for (EntityRef service : services) {
+            for (EntityRef clazz : classes) {
+                saveRelation(documentId, chunkId, chunkText, service, clazz, RelationType.SERVICE_HAS_CLASS, 0.75d, result);
+            }
+        }
+
+        for (EntityRef clazz : classes) {
+            for (EntityRef method : methods) {
+                saveRelation(documentId, chunkId, chunkText, clazz, method, RelationType.CLASS_HAS_METHOD, 0.75d, result);
+            }
+        }
+
+        for (int i = 0; i < services.size(); i++) {
+            for (int j = i + 1; j < services.size(); j++) {
+                saveRelation(documentId, chunkId, chunkText, services.get(i), services.get(j), RelationType.SERVICE_CALLS_SERVICE, 0.7d, result);
             }
         }
     }
@@ -139,7 +226,7 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
             if (isService(entity)) {
                 for (EntityRef library : entityMap.values()) {
                     if (isLibrary(library)) {
-                        saveRelation(documentId, chunkId, chunkText, entity, library, RelationType.USES, result);
+                        saveRelation(documentId, chunkId, chunkText, entity, library, RelationType.USES, 0.8d, result);
                     }
                 }
             }
@@ -169,11 +256,11 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
         EntityRef documentChunkService = entityMap.get("documentchunkservice");
         if (documentChunkService != null) {
             if (entityMap.containsKey("chunk_size")) {
-                saveRelation(documentId, chunkId, chunkText, entityMap.get("chunk_size"), documentChunkService, RelationType.DEFINED_IN, result);
+                saveRelation(documentId, chunkId, chunkText, entityMap.get("chunk_size"), documentChunkService, RelationType.DEFINED_IN, 0.85d, result);
             } else if (containsIgnoreCase(chunkText, "chunk size 500") || containsIgnoreCase(chunkText, "chunk_size")) {
                 EntityRef chunk = entityMap.get("chunk");
                 if (chunk != null) {
-                    saveRelation(documentId, chunkId, chunkText, chunk, documentChunkService, RelationType.DEFINED_IN, result);
+                    saveRelation(documentId, chunkId, chunkText, chunk, documentChunkService, RelationType.DEFINED_IN, 0.7d, result);
                 }
             }
         }
@@ -221,10 +308,21 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
                                EntityRef target,
                                RelationType relationType,
                                RelationBuildResult result) {
+        saveIfPresent(documentId, chunkId, chunkText, source, target, relationType, defaultConfidence(relationType), result);
+    }
+
+    private void saveIfPresent(Long documentId,
+                               Long chunkId,
+                               String chunkText,
+                               EntityRef source,
+                               EntityRef target,
+                               RelationType relationType,
+                               Double confidence,
+                               RelationBuildResult result) {
         if (source == null || target == null) {
             return;
         }
-        saveRelation(documentId, chunkId, chunkText, source, target, relationType, result);
+        saveRelation(documentId, chunkId, chunkText, source, target, relationType, confidence, result);
     }
 
     private void saveRelation(Long documentId,
@@ -234,6 +332,20 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
                               EntityRef target,
                               RelationType relationType,
                               RelationBuildResult result) {
+        saveRelation(documentId, chunkId, chunkText, source, target, relationType, defaultConfidence(relationType), result);
+    }
+
+    private void saveRelation(Long documentId,
+                              Long chunkId,
+                              String chunkText,
+                              EntityRef source,
+                              EntityRef target,
+                              RelationType relationType,
+                              Double confidence,
+                              RelationBuildResult result) {
+        if (hasLocalRelation(result, source, target, relationType)) {
+            return;
+        }
         try {
             RelationHit relation = relationStorageService.findOrCreateRelation(
                     source.getEntityId(),
@@ -245,13 +357,36 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
                     relationType,
                     documentId,
                     chunkId,
-                    buildEvidenceText(chunkText, source, target, relationType)
+                    buildEvidenceText(chunkText, source, target, relationType),
+                    confidence
             );
             result.getRelations().add(relation);
         } catch (RuntimeException ex) {
             log.error("build single relation failed, documentId = {}, chunkId = {}, source = {}, target = {}, relationType = {}",
                     documentId, chunkId, source.getNormalizedName(), target.getNormalizedName(), relationType.name(), ex);
         }
+    }
+
+    private boolean hasLocalRelation(RelationBuildResult result,
+                                     EntityRef source,
+                                     EntityRef target,
+                                     RelationType relationType) {
+        if (result == null || source == null || target == null || relationType == null) {
+            return false;
+        }
+        for (RelationHit relation : result.getRelations()) {
+            if (relation == null) {
+                continue;
+            }
+            if (source.getEntityId() != null
+                    && source.getEntityId().equals(relation.getSourceEntityId())
+                    && target.getEntityId() != null
+                    && target.getEntityId().equals(relation.getTargetEntityId())
+                    && relationType.name().equals(relation.getRelationType())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean isNoiseEntity(EntityRef entity) {
@@ -277,6 +412,252 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
 
     private boolean isLibrary(EntityRef entity) {
         return entity != null && "LIBRARY".equals(entity.getEntityType());
+    }
+
+    private boolean shouldCreateTableHasFieldRelation(String chunkText, EntityRef table, EntityRef field) {
+        if (table == null || field == null) {
+            return false;
+        }
+        if (!"TABLE".equals(normalizeEntityType(table.getEntityType()))) {
+            return false;
+        }
+        if (!"FIELD".equals(normalizeEntityType(field.getEntityType()))) {
+            return false;
+        }
+        if (!StringUtils.hasText(table.getNormalizedName()) || !StringUtils.hasText(field.getNormalizedName())) {
+            return false;
+        }
+        if (table.getNormalizedName().equals(field.getNormalizedName())) {
+            return false;
+        }
+        if (!isTableSchemaChunk(chunkText)) {
+            return false;
+        }
+        if (!isDatabaseColumnName(field.getEntityName())) {
+            return false;
+        }
+        return isLikelySchemaFieldMention(chunkText, field.getEntityName());
+    }
+
+    private boolean isTableSchemaChunk(String chunkText) {
+        if (!StringUtils.hasText(chunkText)) {
+            return false;
+        }
+        String upper = chunkText.toUpperCase(Locale.ROOT);
+        String lower = chunkText.toLowerCase(Locale.ROOT);
+        return upper.contains("CREATE TABLE")
+                || upper.contains("COLUMN_NAME")
+                || upper.contains("USER_TAB_COLUMNS")
+                || chunkText.contains("表结构")
+                || chunkText.contains("字段列表")
+                || chunkText.contains("表字段包括")
+                || chunkText.contains("字段包括")
+                || containsAny(lower, "number", "varchar2", "date", "char", "clob");
+    }
+
+    private boolean isDatabaseColumnName(String name) {
+        if (!StringUtils.hasText(name)) {
+            return false;
+        }
+        String normalized = name.trim().toUpperCase(Locale.ROOT);
+        return DATABASE_COLUMN_PATTERN.matcher(normalized).matches()
+                && !SQL_KEYWORD_BLACKLIST.contains(normalized)
+                && !DOCUMENT_TYPE_BLACKLIST.contains(normalized);
+    }
+
+    private boolean isLikelySchemaFieldMention(String chunkText, String fieldName) {
+        if (!StringUtils.hasText(chunkText) || !StringUtils.hasText(fieldName)) {
+            return false;
+        }
+        String upper = chunkText.toUpperCase(Locale.ROOT);
+        String normalizedField = fieldName.trim().toUpperCase(Locale.ROOT);
+
+        if (upper.contains("CREATE TABLE") && upper.contains(normalizedField)) {
+            return true;
+        }
+        if ((upper.contains("USER_TAB_COLUMNS") || upper.contains("COLUMN_NAME")) && upper.contains(normalizedField)) {
+            return true;
+        }
+        if (containsFieldListContext(upper, normalizedField, "字段包括")) {
+            return true;
+        }
+        if (containsFieldListContext(upper, normalizedField, "常见字段包括")) {
+            return true;
+        }
+        if (containsFieldListContext(upper, normalizedField, "表字段包括")) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean containsFieldListContext(String upperChunkText, String fieldName, String marker) {
+        int markerIndex = upperChunkText.indexOf(marker.toUpperCase(Locale.ROOT));
+        if (markerIndex < 0) {
+            return false;
+        }
+        String tail = upperChunkText.substring(markerIndex);
+        int end = findFieldListEnd(tail);
+        String fieldSection = end >= 0 ? tail.substring(0, end) : tail;
+        return fieldSection.contains(fieldName);
+    }
+
+    private int findFieldListEnd(String text) {
+        int sentenceEnd = text.indexOf('。');
+        int newlineEnd = text.indexOf('\n');
+        int semicolonEnd = text.indexOf('；');
+        int englishSemicolonEnd = text.indexOf(';');
+        int min = Integer.MAX_VALUE;
+        for (int end : new int[]{sentenceEnd, newlineEnd, semicolonEnd, englishSemicolonEnd}) {
+            if (end >= 0 && end < min) {
+                min = end;
+            }
+        }
+        return min == Integer.MAX_VALUE ? -1 : min;
+    }
+
+    private void mergeExtractedEntities(Long documentId,
+                                        Long chunkId,
+                                        String chunkText,
+                                        Map<String, EntityRef> entityMap) {
+        List<EntityHit> extractedEntities = entityExtractionService.extractEntities(chunkText);
+        for (EntityHit extracted : extractedEntities) {
+            if (extracted == null || extracted.getEntityType() == null || !StringUtils.hasText(extracted.getNormalizedName())) {
+                continue;
+            }
+
+            String entityType = normalizeEntityType(extracted.getEntityType().name());
+            String normalizedName = extracted.getNormalizedName().toLowerCase(Locale.ROOT);
+            String key = buildEntityKey(entityType, normalizedName);
+            if (entityMap.containsKey(key)) {
+                continue;
+            }
+
+            Long entityId = entityStorageService.findOrCreateEntity(
+                    extracted.getEntityName(),
+                    entityType,
+                    normalizedName
+            );
+            entityStorageService.insertDocumentEntityLink(
+                    documentId,
+                    chunkId,
+                    entityId,
+                    StringUtils.hasText(extracted.getSourceText()) ? extracted.getSourceText() : chunkText
+            );
+
+            EntityRef ref = new EntityRef();
+            ref.setEntityId(entityId);
+            ref.setEntityName(extracted.getEntityName());
+            ref.setEntityType(entityType);
+            ref.setNormalizedName(normalizedName);
+            ref.setSourceText(extracted.getSourceText());
+            entityMap.put(key, ref);
+        }
+    }
+
+    private List<EntityRef> filterByType(List<EntityRef> entities, String entityType) {
+        List<EntityRef> filtered = new ArrayList<>();
+        if (entities == null || !StringUtils.hasText(entityType)) {
+            return filtered;
+        }
+        for (EntityRef entity : entities) {
+            if (entity != null && entityType.equals(normalizeEntityType(entity.getEntityType()))) {
+                filtered.add(entity);
+            }
+        }
+        return filtered;
+    }
+
+    private List<EntityRef> deduplicateEntities(List<EntityRef> entities) {
+        Map<String, EntityRef> dedup = new LinkedHashMap<>();
+        if (entities == null) {
+            return new ArrayList<>();
+        }
+        for (EntityRef entity : entities) {
+            if (entity == null || !StringUtils.hasText(entity.getNormalizedName())) {
+                continue;
+            }
+            dedup.putIfAbsent(buildEntityKey(entity.getEntityType(), entity.getNormalizedName()), entity);
+        }
+        return new ArrayList<>(dedup.values());
+    }
+
+    private Map<String, EntityRef> buildNormalizedEntityMap(List<EntityRef> entities) {
+        Map<String, EntityRef> entityMap = new LinkedHashMap<>();
+        if (entities == null) {
+            return entityMap;
+        }
+        for (EntityRef entity : entities) {
+            if (entity != null && StringUtils.hasText(entity.getNormalizedName())) {
+                entityMap.putIfAbsent(entity.getNormalizedName(), entity);
+            }
+        }
+        return entityMap;
+    }
+
+    private String normalizeEntityType(String entityType) {
+        if (!StringUtils.hasText(entityType)) {
+            return "";
+        }
+        if ("COLUMN".equalsIgnoreCase(entityType)) {
+            return "FIELD";
+        }
+        return entityType.toUpperCase(Locale.ROOT);
+    }
+
+    private String buildEntityKey(String entityType, String normalizedName) {
+        return normalizeEntityType(entityType) + "|" + (normalizedName == null ? "" : normalizedName.toLowerCase(Locale.ROOT));
+    }
+
+    private void finalizeResultCounts(RelationBuildResult result) {
+        int tableHasField = 0;
+        int apiUsesTable = 0;
+        int mentionedWith = 0;
+        for (RelationHit relation : result.getRelations()) {
+            if (relation == null || !StringUtils.hasText(relation.getRelationType())) {
+                continue;
+            }
+            if (RelationType.TABLE_HAS_FIELD.name().equals(relation.getRelationType())) {
+                tableHasField++;
+            } else if (RelationType.API_USES_TABLE.name().equals(relation.getRelationType())) {
+                apiUsesTable++;
+            } else if (RelationType.MENTIONED_WITH.name().equals(relation.getRelationType())) {
+                mentionedWith++;
+            }
+        }
+        result.setRelationCount(result.getRelations().size());
+        result.setCreatedTableHasFieldCount(tableHasField);
+        result.setCreatedApiUsesTableCount(apiUsesTable);
+        result.setCreatedMentionedWithCount(mentionedWith);
+    }
+
+    private int safeInt(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private Double defaultConfidence(RelationType relationType) {
+        if (relationType == null) {
+            return 0.5d;
+        }
+        switch (relationType) {
+            case TABLE_HAS_FIELD:
+            case API_BELONGS_TO_SERVICE:
+                return 0.9d;
+            case API_USES_TABLE:
+            case SERVICE_HAS_CLASS:
+            case CLASS_HAS_METHOD:
+            case SERVICE_CALLS_SERVICE:
+            case USES:
+            case BELONGS_TO:
+            case CONFIGURED_BY:
+            case DEPENDS_ON:
+            case DEFINED_IN:
+                return 0.8d;
+            case MENTIONED_WITH:
+            case RELATED_TO:
+                return 0.35d;
+            default:
+                return 0.6d;
+        }
     }
 
     private boolean containsIgnoreCase(String text, String token) {
