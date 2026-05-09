@@ -7,7 +7,7 @@ public class AskResponse {
 
     private String question;
     private String keyword;
-    private List<ChunkResponse> chunks = new ArrayList<>();
+    private List<ChunkHit> chunks = new ArrayList<>();
     private String structuredContext;
     private String answer;
     private List<QueryEntity> queryEntities = new ArrayList<>();
@@ -32,11 +32,11 @@ public class AskResponse {
         this.keyword = keyword;
     }
 
-    public List<ChunkResponse> getChunks() {
+    public List<ChunkHit> getChunks() {
         return chunks;
     }
 
-    public void setChunks(List<ChunkResponse> chunks) {
+    public void setChunks(List<ChunkHit> chunks) {
         this.chunks = chunks;
     }
 
