@@ -37,8 +37,11 @@ public class RagEntityRelation {
     @Column(name = "EVIDENCE_TEXT")
     private String evidenceText;
 
+    @Column(name = "CONFIDENCE")
+    private Double confidence;
+
     @Column(name = "CREATED_AT")
-    private Date createdAt;
+    private Date createTime;
 
     public Long getId() {
         return id;
@@ -96,11 +99,19 @@ public class RagEntityRelation {
         this.evidenceText = evidenceText;
     }
 
-    public Date getCreatedAt() {
-        return createdAt;
+    public Double getConfidence() {
+        return confidence;
     }
 
-    public void setCreatedAt(Date createdAt) {
-        this.createdAt = createdAt;
+    public void setConfidence(Double confidence) {
+        this.confidence = confidence;
+    }
+
+    public Date getCreateTime() {
+        return createTime;
+    }
+
+    public void setCreateTime(Date createTime) {
+        this.createTime = createTime;
     }
 }

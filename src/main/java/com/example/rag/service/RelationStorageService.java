@@ -14,7 +14,8 @@ public interface RelationStorageService {
                                      RelationType relationType,
                                      Long documentId,
                                      Long chunkId,
-                                     String evidenceText);
+                                     String evidenceText,
+                                     Double confidence);
 
     void deleteByDocumentId(Long documentId);
 }
