@@ -57,7 +57,7 @@ public class UploadController {
     @GetMapping("/dbtest2")
     public String dbtest2() {
         try {
-            Document document = documentService.saveDocument("manual.txt", "txt", "UPLOADED", "manual content");
+            Document document = documentService.saveDocument("manual.txt", "txt", "UPLOADED", "manual content", "KNOWLEDGE");
             return String.valueOf(document.getId());
         } catch (Exception e) {
             e.printStackTrace();
@@ -110,7 +110,8 @@ public class UploadController {
     }
 
     @PostMapping("/upload")
-    public ResponseEntity<UploadResult> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<UploadResult> upload(@RequestParam("file") MultipartFile file,
+                                               @RequestParam(value = "documentType", required = false) String documentType) {
         log.info("receive upload request");
 
         if (file == null || file.isEmpty()) {
@@ -181,7 +182,7 @@ public class UploadController {
         Document document;
         try {
             log.info("start save document metadata");
-            document = documentService.saveDocument(originalFilename, fileType, "UPLOADED", text);
+            document = documentService.saveDocument(originalFilename, fileType, "UPLOADED", text, documentType);
             log.info("document saved id = {}", document.getId());
         } catch (Exception e) {
             e.printStackTrace();

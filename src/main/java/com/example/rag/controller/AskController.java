@@ -28,6 +28,7 @@ public class AskController {
         log.info("receive ask request");
 
         String question = request == null ? null : request.getQuestion();
+        String mode = request == null ? null : request.getMode();
         log.info("question = {}", question);
 
         if (!StringUtils.hasText(question)) {
@@ -39,7 +40,7 @@ public class AskController {
         }
 
         long start = System.currentTimeMillis();
-        GraphAskResponse response = askService.ask(question);
+        GraphAskResponse response = askService.ask(question, mode);
         long responseTime = System.currentTimeMillis() - start;
 
         log.info("keyword = {}", response.getKeyword());

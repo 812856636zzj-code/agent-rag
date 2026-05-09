@@ -51,7 +51,10 @@ public class DocumentEntityLinkRepositoryImpl implements DocumentEntityLinkRepos
         sql.append(" from RAG_ENTITIES e");
         sql.append(" join RAG_DOCUMENT_ENTITY_LINKS l on l.ENTITY_ID = e.ID");
         sql.append(" join RAG_DOCUMENT_CHUNKS c on c.ID = l.CHUNK_ID");
-        sql.append(" where l.CHUNK_ID is not null and (");
+        sql.append(" join RAG_DOCUMENTS d on d.ID = c.DOCUMENT_ID");
+        sql.append(" where l.CHUNK_ID is not null");
+        sql.append(" and d.DOCUMENT_TYPE = 'KNOWLEDGE'");
+        sql.append(" and (");
 
         for (int i = 0; i < names.size(); i++) {
             if (i > 0) {

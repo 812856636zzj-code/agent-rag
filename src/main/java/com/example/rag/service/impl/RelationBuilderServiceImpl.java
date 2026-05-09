@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -144,6 +145,14 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
             }
         }
 
+        EntityRef pdf = entityMap.get("pdf");
+        EntityRef pdfBox = entityMap.get("pdfbox");
+        EntityRef uploadApi = entityMap.get("/upload");
+        if (pdfBox != null && containsAnyIgnoreCase(chunkText, "依赖", "使用", "解析")) {
+            saveIfPresent(documentId, chunkId, chunkText, pdf, pdfBox, RelationType.DEPENDS_ON, result);
+            saveIfPresent(documentId, chunkId, chunkText, uploadApi, pdfBox, RelationType.DEPENDS_ON, result);
+        }
+
         EntityRef ragDocumentChunks = entityMap.get("rag_document_chunks");
         if (ragDocumentChunks != null) {
             saveIfPresent(documentId, chunkId, chunkText, entityMap.get("embeddingstatus"), ragDocumentChunks, RelationType.BELONGS_TO, result);
@@ -236,7 +245,7 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
                     relationType,
                     documentId,
                     chunkId,
-                    truncateEvidence(chunkText)
+                    buildEvidenceText(chunkText, source, target, relationType)
             );
             result.getRelations().add(relation);
         } catch (RuntimeException ex) {
@@ -274,6 +283,18 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
         return StringUtils.hasText(text) && text.toLowerCase(Locale.ROOT).contains(token.toLowerCase(Locale.ROOT));
     }
 
+    private boolean containsAnyIgnoreCase(String text, String... tokens) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (containsIgnoreCase(text, token)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private String truncateEvidence(String chunkText) {
         if (!StringUtils.hasText(chunkText)) {
             return "";
@@ -283,6 +304,198 @@ public class RelationBuilderServiceImpl implements RelationBuilderService {
             return normalized;
         }
         return normalized.substring(0, 500);
+    }
+
+    private String buildEvidenceText(String chunkText,
+                                     EntityRef source,
+                                     EntityRef target,
+                                     RelationType relationType) {
+        String fallback = truncateEvidence(chunkText);
+        if (!StringUtils.hasText(chunkText)) {
+            return fallback;
+        }
+
+        List<String> sentences = splitSentences(chunkText);
+        if (sentences.isEmpty()) {
+            return fallback;
+        }
+
+        List<ScoredSentence> scored = new ArrayList<>();
+        for (int i = 0; i < sentences.size(); i++) {
+            String sentence = sentences.get(i);
+            int score = scoreSentence(sentence, source, target, relationType);
+            if (score > 0) {
+                scored.add(new ScoredSentence(sentence, score, i));
+            }
+        }
+
+        if (!scored.isEmpty()) {
+            scored.sort(Comparator
+                    .comparingInt(ScoredSentence::getScore).reversed()
+                    .thenComparingInt(ScoredSentence::getIndex));
+            return clipEvidence(scored.get(0).getText());
+        }
+
+        int sourceIndex = findSentenceIndex(sentences, source == null ? null : source.getEntityName());
+        int targetIndex = findSentenceIndex(sentences, target == null ? null : target.getEntityName());
+        if (sourceIndex >= 0 || targetIndex >= 0) {
+            String combined = combineAdjacentSentences(sentences, sourceIndex, targetIndex);
+            if (StringUtils.hasText(combined)) {
+                return clipEvidence(combined);
+            }
+        }
+
+        return fallback;
+    }
+
+    private List<String> splitSentences(String chunkText) {
+        List<String> sentences = new ArrayList<>();
+        if (!StringUtils.hasText(chunkText)) {
+            return sentences;
+        }
+
+        String[] parts = chunkText.replace("\r", "\n").split("[。；;\\n]|(?<=[A-Za-z0-9_])\\.(?=\\s|$)");
+        for (String part : parts) {
+            String normalized = part == null ? "" : part.replaceAll("\\s+", " ").trim();
+            if (StringUtils.hasText(normalized)) {
+                sentences.add(normalized);
+            }
+        }
+        return sentences;
+    }
+
+    private int scoreSentence(String sentence,
+                              EntityRef source,
+                              EntityRef target,
+                              RelationType relationType) {
+        if (!StringUtils.hasText(sentence)) {
+            return 0;
+        }
+
+        String lower = sentence.toLowerCase(Locale.ROOT);
+        int score = 0;
+        boolean hasSource = containsEntity(sentence, source);
+        boolean hasTarget = containsEntity(sentence, target);
+
+        if (hasSource) {
+            score += 4;
+        }
+        if (hasTarget) {
+            score += 4;
+        }
+        if (hasSource && hasTarget) {
+            score += 10;
+        }
+
+        if (relationType == RelationType.BELONGS_TO && containsAny(lower, "属于", "字段", "表")) {
+            score += 6;
+        }
+        if (relationType == RelationType.USES && containsAny(lower, "使用", "依赖")) {
+            score += 6;
+        }
+        if (relationType == RelationType.DEPENDS_ON && containsAny(lower, "依赖", "调用")) {
+            score += 6;
+        }
+        if (containsAny(lower, "document_id desc", "chunk_index asc", "order by", "dbms_lob.instr")) {
+            score += 8;
+        }
+
+        return score;
+    }
+
+    private int findSentenceIndex(List<String> sentences, String entityName) {
+        if (!StringUtils.hasText(entityName)) {
+            return -1;
+        }
+        for (int i = 0; i < sentences.size(); i++) {
+            if (containsIgnoreCase(sentences.get(i), entityName)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String combineAdjacentSentences(List<String> sentences, int sourceIndex, int targetIndex) {
+        int from = Integer.MAX_VALUE;
+        int to = Integer.MIN_VALUE;
+        if (sourceIndex >= 0) {
+            from = Math.min(from, sourceIndex);
+            to = Math.max(to, sourceIndex);
+        }
+        if (targetIndex >= 0) {
+            from = Math.min(from, targetIndex);
+            to = Math.max(to, targetIndex);
+        }
+        if (from == Integer.MAX_VALUE) {
+            return "";
+        }
+
+        from = Math.max(0, from);
+        to = Math.min(sentences.size() - 1, Math.max(to, from));
+        StringBuilder builder = new StringBuilder();
+        for (int i = from; i <= to; i++) {
+            if (builder.length() > 0) {
+                builder.append(" ");
+            }
+            builder.append(sentences.get(i));
+        }
+        return builder.toString().trim();
+    }
+
+    private boolean containsEntity(String sentence, EntityRef entity) {
+        if (entity == null) {
+            return false;
+        }
+        return containsIgnoreCase(sentence, entity.getEntityName())
+                || containsIgnoreCase(sentence, entity.getNormalizedName())
+                || containsIgnoreCase(sentence, entity.getSourceText());
+    }
+
+    private boolean containsAny(String text, String... tokens) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        for (String token : tokens) {
+            if (StringUtils.hasText(token) && text.contains(token.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String clipEvidence(String text) {
+        String normalized = text == null ? "" : text.replaceAll("\\s+", " ").trim();
+        if (!StringUtils.hasText(normalized)) {
+            return "";
+        }
+        if (normalized.length() <= 500) {
+            return normalized;
+        }
+        return normalized.substring(0, 500);
+    }
+
+    private static class ScoredSentence {
+        private final String text;
+        private final int score;
+        private final int index;
+
+        private ScoredSentence(String text, int score, int index) {
+            this.text = text;
+            this.score = score;
+            this.index = index;
+        }
+
+        public String getText() {
+            return text;
+        }
+
+        public int getScore() {
+            return score;
+        }
+
+        public int getIndex() {
+            return index;
+        }
     }
 
     private static class EntityRef {

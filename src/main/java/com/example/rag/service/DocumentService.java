@@ -8,12 +8,16 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.Optional;
 
 @Service
 public class DocumentService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
+    private static final String DOCUMENT_TYPE_KNOWLEDGE = "KNOWLEDGE";
+    private static final String DOCUMENT_TYPE_TEST_SPEC = "TEST_SPEC";
+    private static final String DOCUMENT_TYPE_DEV_NOTE = "DEV_NOTE";
 
     private final DocumentRepository documentRepository;
 
@@ -22,10 +26,15 @@ public class DocumentService {
     }
 
     public Document saveDocument(String fileName, String fileType, String status, String content) {
+        return saveDocument(fileName, fileType, status, content, DOCUMENT_TYPE_KNOWLEDGE);
+    }
+
+    public Document saveDocument(String fileName, String fileType, String status, String content, String documentType) {
         Document document = new Document();
         document.setFileName(fileName);
         document.setFileType(fileType);
         document.setStatus(status);
+        document.setDocumentType(normalizeDocumentType(documentType));
         document.setContent(content);
         if (document.getUploadTime() == null) {
             document.setUploadTime(LocalDateTime.now());
@@ -52,5 +61,17 @@ public class DocumentService {
         sameContentDocument.ifPresent(document ->
                 log.info("duplicate document found by content, documentId = {}", document.getId()));
         return sameContentDocument;
+    }
+
+    private String normalizeDocumentType(String documentType) {
+        if (!StringUtils.hasText(documentType)) {
+            return DOCUMENT_TYPE_KNOWLEDGE;
+        }
+
+        String normalized = documentType.trim().toUpperCase(Locale.ROOT);
+        if (DOCUMENT_TYPE_TEST_SPEC.equals(normalized) || DOCUMENT_TYPE_DEV_NOTE.equals(normalized)) {
+            return normalized;
+        }
+        return DOCUMENT_TYPE_KNOWLEDGE;
     }
 }
