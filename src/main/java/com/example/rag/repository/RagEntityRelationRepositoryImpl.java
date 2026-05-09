@@ -24,7 +24,10 @@ public class RagEntityRelationRepositoryImpl implements RagEntityRelationReposit
         @SuppressWarnings("unchecked")
         List<Object[]> rows = entityManager.createNativeQuery(
                         "select " +
-                                "case when lower(se.NORMALIZED_NAME) = :normalizedName then te.ENTITY_NAME else se.ENTITY_NAME end as ADJ_ENTITY_NAME, " +
+                                "case " +
+                                " when lower(se.NORMALIZED_NAME) = :normalizedName or lower(se.ENTITY_NAME) = lower(:entityName) then te.ENTITY_NAME " +
+                                " else se.ENTITY_NAME " +
+                                "end as ADJ_ENTITY_NAME, " +
                                 "r.RELATION_TYPE, " +
                                 "r.DOCUMENT_ID, " +
                                 "r.CHUNK_ID, " +
@@ -32,10 +35,15 @@ public class RagEntityRelationRepositoryImpl implements RagEntityRelationReposit
                                 "from RAG_ENTITY_RELATIONS r " +
                                 "join RAG_ENTITIES se on se.ID = r.SOURCE_ENTITY_ID " +
                                 "join RAG_ENTITIES te on te.ID = r.TARGET_ENTITY_ID " +
-                                "where lower(se.NORMALIZED_NAME) = :normalizedName " +
+                                "join RAG_DOCUMENTS d on d.ID = r.DOCUMENT_ID " +
+                                "where d.DOCUMENT_TYPE = 'KNOWLEDGE' " +
+                                "  and (lower(se.NORMALIZED_NAME) = :normalizedName " +
                                 "   or lower(te.NORMALIZED_NAME) = :normalizedName " +
+                                "   or lower(se.ENTITY_NAME) = lower(:entityName) " +
+                                "   or lower(te.ENTITY_NAME) = lower(:entityName)) " +
                                 "order by r.DOCUMENT_ID desc, r.CHUNK_ID asc")
                 .setParameter("normalizedName", entityName.trim().toLowerCase(Locale.ROOT))
+                .setParameter("entityName", entityName.trim())
                 .getResultList();
         return rows;
     }

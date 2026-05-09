@@ -80,9 +80,10 @@ public class QueryUnderstandingServiceImpl implements QueryUnderstandingService 
         understanding.setIntent(QueryIntent.LIBRARY_DEPENDENCY);
         understanding.setFocusEntity("PDF");
         understanding.setKeyword("PDF");
-        understanding.setQueryTerms(buildList("PDF", "PDFBox", "/upload", "\u5bfc\u5165", "\u4e0a\u4f20", "\u5e93"));
+        understanding.setQueryTerms(buildList("PDF", "PDFBox", "/upload", "UploadService", "DocumentChunkService",
+                "\u5e93", "\u4f9d\u8d56", "\u5bfc\u5165", "\u4e0a\u4f20"));
         understanding.setExpectedEntityTypes(buildList("LIBRARY", "SERVICE", "API"));
-        understanding.setBoostTerms(buildList("PDFBox", "DocumentChunkService", "UploadService", "/upload"));
+        understanding.setBoostTerms(buildList("PDFBox", "UploadService", "DocumentChunkService", "USES"));
     }
 
     private void fillPdfBoxRelation(QueryUnderstanding understanding) {

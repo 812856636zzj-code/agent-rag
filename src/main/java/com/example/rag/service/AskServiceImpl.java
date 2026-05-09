@@ -8,6 +8,7 @@ import com.example.rag.dto.QueryUnderstanding;
 import com.example.rag.dto.RelationQueryHit;
 import com.example.rag.dto.StructuredContext;
 import com.example.rag.entity.QueryLog;
+import com.example.rag.enums.QueryIntent;
 import com.example.rag.repository.QueryLogRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 @Service
@@ -52,6 +54,57 @@ public class AskServiceImpl implements AskService {
 
     @Override
     public GraphAskResponse ask(String question) {
+        return ask(question, "graph");
+    }
+
+    @Override
+    public GraphAskResponse ask(String question, String mode) {
+        if ("baseline".equalsIgnoreCase(normalizeMode(mode))) {
+            return askBaseline(question);
+        }
+        return askGraph(question);
+    }
+
+    private GraphAskResponse askBaseline(String question) {
+        long start = System.currentTimeMillis();
+
+        QueryUnderstanding understanding = queryUnderstandingService.understand(question);
+        HybridSearchResult hybridSearchResult = searchService.searchHybrid(question);
+        String finalKeyword = StringUtils.hasText(understanding.getKeyword())
+                ? understanding.getKeyword()
+                : hybridSearchResult.getKeyword();
+
+        AskContext askContext = contextBuilderService.buildContext(
+                question,
+                finalKeyword,
+                hybridSearchResult.getMergedChunks()
+        );
+        List<ChunkHit> chunks = buildResponseChunks(askContext.getTopChunks(), finalKeyword);
+        String answer = answerBuilderService.buildAnswer(askContext);
+
+        GraphAskResponse response = new GraphAskResponse();
+        response.setQuestion(question);
+        response.setKeyword(finalKeyword);
+        response.setChunks(chunks);
+        response.setStructuredContext(askContext.getStructuredContext());
+        response.setAnswer(answer);
+        response.setQueryEntities(understanding.getQueryEntities());
+        response.setKeywordHitCount(hybridSearchResult.getKeywordHits() == null ? 0 : hybridSearchResult.getKeywordHits().size());
+        response.setEntityHitCount(hybridSearchResult.getEntityHits() == null ? 0 : hybridSearchResult.getEntityHits().size());
+        response.setMergedChunkCount(hybridSearchResult.getMergedChunks() == null ? 0 : hybridSearchResult.getMergedChunks().size());
+        response.setRetrievalMode("BASELINE_HYBRID");
+        response.setIntent(understanding.getIntent() == null ? null : understanding.getIntent().name());
+        response.setFocusEntity(understanding.getFocusEntity());
+        response.setMatchedEntities(new ArrayList<>());
+        response.setMatchedRelations(new ArrayList<>());
+        response.setRelationHitCount(0);
+
+        Long sourceDocId = chunks.isEmpty() ? null : chunks.get(0).getDocumentId();
+        saveQueryLog(question, answer, sourceDocId, System.currentTimeMillis() - start);
+        return response;
+    }
+
+    private GraphAskResponse askGraph(String question) {
         long start = System.currentTimeMillis();
 
         QueryUnderstanding understanding = queryUnderstandingService.understand(question);
@@ -113,7 +166,7 @@ public class AskServiceImpl implements AskService {
 
         if (focusHits.isEmpty() && understanding != null && understanding.getQueryTerms() != null) {
             for (String queryTerm : understanding.getQueryTerms()) {
-                if (!looksLikeEntityTerm(queryTerm)) {
+                if (!shouldQueryRelationFallbackTerm(understanding, queryTerm)) {
                     continue;
                 }
                 try {
@@ -176,6 +229,24 @@ public class AskServiceImpl implements AskService {
 
     private boolean looksLikeEntityTerm(String queryTerm) {
         return StringUtils.hasText(queryTerm) && ENTITY_LIKE_TERM_PATTERN.matcher(queryTerm.trim()).matches();
+    }
+
+    private boolean shouldQueryRelationFallbackTerm(QueryUnderstanding understanding, String queryTerm) {
+        if (!StringUtils.hasText(queryTerm)) {
+            return false;
+        }
+        if (understanding != null && understanding.getIntent() == QueryIntent.LIBRARY_DEPENDENCY) {
+            return true;
+        }
+        return looksLikeEntityTerm(queryTerm);
+    }
+
+    private String normalizeMode(String mode) {
+        if (!StringUtils.hasText(mode)) {
+            return "graph";
+        }
+        String normalized = mode.trim().toLowerCase(Locale.ROOT);
+        return "baseline".equals(normalized) ? "baseline" : "graph";
     }
 
     private boolean containsIgnoreCase(String text, String token) {
