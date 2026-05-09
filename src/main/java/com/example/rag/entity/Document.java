@@ -30,6 +30,9 @@ public class Document {
     @Column(name = "STATUS")
     private String status;
 
+    @Column(name = "DOCUMENT_TYPE")
+    private String documentType;
+
     @Lob
     @Column(name = "CONTENT")
     private String content;
@@ -72,6 +75,14 @@ public class Document {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getDocumentType() {
+        return documentType;
+    }
+
+    public void setDocumentType(String documentType) {
+        this.documentType = documentType;
     }
 
     public String getContent() {

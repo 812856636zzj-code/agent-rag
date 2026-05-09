@@ -10,6 +10,7 @@ public class AskContext {
     private List<ChunkHit> matchedChunks = new ArrayList<>();
     private List<ChunkHit> topChunks = new ArrayList<>();
     private String structuredContext;
+    private StructuredContext structuredContextData;
     private List<Long> sourceDocIds = new ArrayList<>();
     private List<String> answerHints = new ArrayList<>();
 
@@ -51,6 +52,14 @@ public class AskContext {
 
     public void setStructuredContext(String structuredContext) {
         this.structuredContext = structuredContext;
+    }
+
+    public StructuredContext getStructuredContextData() {
+        return structuredContextData;
+    }
+
+    public void setStructuredContextData(StructuredContext structuredContextData) {
+        this.structuredContextData = structuredContextData;
     }
 
     public List<Long> getSourceDocIds() {

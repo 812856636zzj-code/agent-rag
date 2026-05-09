@@ -1,5 +1,6 @@
 package com.example.rag.controller;
 
+import com.example.rag.dto.UploadResult;
 import com.example.rag.entity.Document;
 import com.example.rag.entity.DocumentChunk;
 import com.example.rag.dto.SearchResult;
@@ -56,7 +57,7 @@ public class UploadController {
     @GetMapping("/dbtest2")
     public String dbtest2() {
         try {
-            Document document = documentService.saveDocument("manual.txt", "txt", "UPLOADED", "manual content");
+            Document document = documentService.saveDocument("manual.txt", "txt", "UPLOADED", "manual content", "KNOWLEDGE");
             return String.valueOf(document.getId());
         } catch (Exception e) {
             e.printStackTrace();
@@ -109,36 +110,22 @@ public class UploadController {
     }
 
     @PostMapping("/upload")
-    public ResponseEntity<String> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<UploadResult> upload(@RequestParam("file") MultipartFile file,
+                                               @RequestParam(value = "documentType", required = false) String documentType) {
         log.info("receive upload request");
 
         if (file == null || file.isEmpty()) {
-            return ResponseEntity.badRequest().body("file is empty");
+            return ResponseEntity.badRequest().body(buildUploadResult(false, false, "file is empty", null, null));
         }
 
         String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
-        log.info("original file name = {}", originalFilename);
+        log.info("upload fileName = {}", originalFilename);
         if (!StringUtils.hasText(originalFilename)) {
-            return ResponseEntity.badRequest().body("file name is invalid");
+            return ResponseEntity.badRequest().body(buildUploadResult(false, false, "file name is invalid", null, null));
         }
         String lowerFileName = originalFilename.toLowerCase();
         if (!lowerFileName.endsWith(".txt") && !lowerFileName.endsWith(".pdf")) {
-            return ResponseEntity.badRequest().body("only txt and pdf file are supported");
-        }
-
-        Path targetPath;
-        try {
-            log.info("start save local file");
-            Path uploadPath = Paths.get(UPLOAD_DIR);
-            Files.createDirectories(uploadPath);
-
-            targetPath = uploadPath.resolve(originalFilename);
-            Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
-            log.info("local file saved path = {}", targetPath.toAbsolutePath());
-        } catch (IOException e) {
-            e.printStackTrace();
-            log.error("save local file failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("save file failed");
+            return ResponseEntity.badRequest().body(buildUploadResult(false, false, "only txt and pdf file are supported", null, null));
         }
 
         String text;
@@ -159,29 +146,75 @@ public class UploadController {
         } catch (IOException e) {
             e.printStackTrace();
             log.error("read document content failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("read file failed");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(buildUploadResult(false, false, "read file failed", null, originalFilename));
+        }
+
+        Optional<Document> duplicateDocument = documentService.findDuplicateDocument(originalFilename, text);
+        if (duplicateDocument.isPresent()) {
+            Document existingDocument = duplicateDocument.get();
+            log.info("skip upload if duplicate, documentId = {}", existingDocument.getId());
+            return ResponseEntity.ok(buildUploadResult(
+                    false,
+                    true,
+                    "该语料已上传过",
+                    existingDocument.getId(),
+                    existingDocument.getFileName()
+            ));
+        }
+
+        Path targetPath;
+        try {
+            log.info("start save local file");
+            Path uploadPath = Paths.get(UPLOAD_DIR);
+            Files.createDirectories(uploadPath);
+
+            targetPath = uploadPath.resolve(originalFilename);
+            Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+            log.info("local file saved path = {}", targetPath.toAbsolutePath());
+        } catch (IOException e) {
+            e.printStackTrace();
+            log.error("save local file failed", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(buildUploadResult(false, false, "save file failed", null, originalFilename));
         }
 
         Document document;
         try {
             log.info("start save document metadata");
-            document = documentService.saveDocument(originalFilename, fileType, "UPLOADED", text);
+            document = documentService.saveDocument(originalFilename, fileType, "UPLOADED", text, documentType);
             log.info("document saved id = {}", document.getId());
         } catch (Exception e) {
             e.printStackTrace();
             log.error("save document metadata failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("save document failed");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(buildUploadResult(false, false, "save document failed", null, originalFilename));
         }
 
         try {
             log.info("start save chunks");
             int chunkCount = documentChunkService.saveChunks(document.getId(), text);
             log.info("chunks saved count = {}", chunkCount);
-            return ResponseEntity.ok("upload success");
+            return ResponseEntity.ok(buildUploadResult(true, false, "upload success", document.getId(), originalFilename));
         } catch (Exception e) {
             e.printStackTrace();
             log.error("save chunks failed", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("save chunks failed");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(buildUploadResult(false, false, "save chunks failed", document.getId(), originalFilename));
         }
+    }
+
+    private UploadResult buildUploadResult(boolean uploaded,
+                                           boolean duplicate,
+                                           String message,
+                                           Long documentId,
+                                           String fileName) {
+        UploadResult result = new UploadResult();
+        result.setUploaded(uploaded);
+        result.setDuplicate(duplicate);
+        result.setMessage(message);
+        result.setDocumentId(documentId);
+        result.setFileName(fileName);
+        return result;
     }
 }

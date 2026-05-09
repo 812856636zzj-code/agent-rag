@@ -1,0 +1,119 @@
+RAG API Day 6 Graph 增强问答测试说明
+
+本文件用于验证 Day 6 的 Graph 增强版 /ask。Day 6 的目标不是单纯从 chunk 中摘抄文本，而是让 /ask 同时利用 keyword hits、entity hits、relation hits 和 structured context，最终生成包含结论、命中实体关系和证据摘要的回答。
+
+一、/ask 依赖哪些已有能力
+
+/ask 是当前系统的自然语言问答入口。/ask 依赖 SearchService 完成检索，依赖 searchHybrid(question) 合并 keyword hits 和 entity hits，依赖 RelationQueryService 查询实体关系，依赖 ContextBuilderService 构造 structuredContext，最后依赖 AnswerBuilderService 生成 answer。
+
+因此，/ask 的 Graph 增强问答链路可以描述为：
+question -> QueryUnderstandingService -> SearchService.searchHybrid(question) -> RelationQueryService.findRelations(...) -> ContextBuilderService.buildGraphContext(...) -> AnswerBuilderService.buildGraphAnswer(...)
+
+在这个流程中，QueryUnderstandingService 负责识别 intent、focusEntity、keyword、queryTerms 和 boostTerms。SearchService 负责 keyword search、entity search 和 hybrid retrieval。RelationQueryService 负责从 RAG_ENTITY_RELATIONS 中查询实体关系。ContextBuilderService 负责把 matchedEntities、matchedRelations、retrievedChunks 和 evidenceTexts 组装成 StructuredContext。AnswerBuilderService 负责根据 StructuredContext 输出三段式回答。
+
+对于问题“/ask 依赖哪些已有能力？”，系统应该识别 intent 为 SERVICE_DEPENDENCY，focusEntity 为 /ask。系统应该命中实体 /ask、SearchService、QueryUnderstandingService、RelationQueryService、ContextBuilderService、AnswerBuilderService 和 searchHybrid。系统应该命中关系：
+/ask DEPENDS_ON SearchService
+/ask DEPENDS_ON QueryUnderstandingService
+/ask DEPENDS_ON RelationQueryService
+/ask DEPENDS_ON ContextBuilderService
+/ask DEPENDS_ON AnswerBuilderService
+
+理想回答是：/ask 依赖 QueryUnderstandingService 做问题理解，依赖 SearchService.searchHybrid 做混合检索，依赖 RelationQueryService 做关系扩展，依赖 ContextBuilderService 构造结构化上下文，最后依赖 AnswerBuilderService 生成回答。
+
+二、PDF 导入依赖什么库
+
+PDF 文件导入通过 /upload 接口进入系统。UploadService 负责接收上传文件并读取文件内容。对于 PDF 文件，系统依赖 PDFBox 解析 PDF 页面文本。DocumentChunkService 会把解析后的文本切分成 chunk，并保存到 RAG_DOCUMENT_CHUNKS 表。
+
+PDFBox 是处理 PDF 文档内容提取的核心库。UploadService USES PDFBox。DocumentChunkService USES PDFBox。/upload RELATED_TO PDFBox。PDFBox RELATED_TO PDF。
+
+对于问题“PDF 导入依赖什么库？”，系统应该识别 intent 为 LIBRARY_DEPENDENCY，focusEntity 为 PDF，keyword 为 PDF。系统应该命中实体 PDF、PDFBox、/upload、UploadService、DocumentChunkService 和 LIBRARY。系统应该命中关系：
+UploadService USES PDFBox
+DocumentChunkService USES PDFBox
+/upload RELATED_TO PDFBox
+
+理想回答是：PDF 导入依赖 PDFBox。相关服务包括 UploadService 和 DocumentChunkService。UploadService 负责接收上传文件，DocumentChunkService 负责切分解析后的文本内容。
+
+三、embeddingStatus 属于哪张表
+
+embeddingStatus 是 chunk 处理状态字段，在数据库中对应 EMBEDDING_STATUS。EMBEDDING_STATUS 属于 RAG_DOCUMENT_CHUNKS 表。RAG_DOCUMENT_CHUNKS 用于保存文档切分后的 chunk 数据，常见字段包括 ID、DOCUMENT_ID、CHUNK_INDEX、CONTENT、TOKEN_COUNT、CREATE_TIME 和 EMBEDDING_STATUS。
+
+embeddingStatus BELONGS_TO RAG_DOCUMENT_CHUNKS。
+chunkIndex BELONGS_TO RAG_DOCUMENT_CHUNKS。
+chunkContent BELONGS_TO RAG_DOCUMENT_CHUNKS。
+tokenCount BELONGS_TO RAG_DOCUMENT_CHUNKS。
+EMBEDDING_STATUS BELONGS_TO RAG_DOCUMENT_CHUNKS。
+
+当 embeddingStatus 的值为 PENDING 时，表示 chunk 等待处理。当值为 DONE 或 EMBEDDING_DONE 时，表示 chunk 已完成处理。当值为 FAILED 或 ERROR 时，表示处理失败。
+
+对于问题“embeddingStatus 属于哪张表？”，系统应该识别 intent 为 TABLE_OWNERSHIP，focusEntity 为 embeddingStatus，keyword 为 embeddingStatus。系统应该命中实体 embeddingStatus、EMBEDDING_STATUS、RAG_DOCUMENT_CHUNKS、FIELD 和 TABLE。系统应该命中关系：
+embeddingStatus BELONGS_TO RAG_DOCUMENT_CHUNKS
+EMBEDDING_STATUS BELONGS_TO RAG_DOCUMENT_CHUNKS
+
+理想回答是：embeddingStatus 属于 RAG_DOCUMENT_CHUNKS 表，在数据库中对应 EMBEDDING_STATUS 字段，用于表示 chunk 的处理状态。
+
+四、/search 的排序规则是什么
+
+/search 是关键词检索接口，用于从 RAG_DOCUMENT_CHUNKS.CONTENT 中查找相关 chunk。/search 依赖 SearchService。SearchService 可能使用 dbms_lob.instr 对 CLOB 类型的 CONTENT 字段做关键词匹配。
+
+当前 /search 的排序规则是：
+ORDER BY DOCUMENT_ID DESC, CHUNK_INDEX ASC
+
+其中 DOCUMENT_ID DESC 表示优先返回较新的文档。CHUNK_INDEX ASC 表示同一文档内按照 chunk 原始顺序从前到后排列。这样可以保证新上传的文档优先展示，同时保持文档内部 chunk 的阅读顺序。
+
+/search DEPENDS_ON SearchService。
+/search DEPENDS_ON dbms_lob.instr。
+/search RELATED_TO RAG_DOCUMENT_CHUNKS。
+SearchService USES dbms_lob.instr。
+DOCUMENT_ID DESC RELATED_TO 排序规则。
+CHUNK_INDEX ASC RELATED_TO 排序规则。
+
+对于问题“/search 的排序规则是什么？”，系统应该识别 intent 为 SEARCH_RULE，focusEntity 为 /search，keyword 为 排序。系统应该命中实体 /search、SearchService、dbms_lob.instr、RAG_DOCUMENT_CHUNKS、DOCUMENT_ID DESC、CHUNK_INDEX ASC。系统应该命中关系：
+/search DEPENDS_ON SearchService
+/search DEPENDS_ON dbms_lob.instr
+/search RELATED_TO RAG_DOCUMENT_CHUNKS
+
+理想回答是：/search 的排序规则是先按 DOCUMENT_ID DESC 优先返回较新的文档，再按 CHUNK_INDEX ASC 保持同一文档内 chunk 的顺序。如果涉及关键词匹配，则使用 dbms_lob.instr 在 RAG_DOCUMENT_CHUNKS.CONTENT 中查找关键词。
+
+五、Graph 增强版 /ask 响应结构
+
+Day 6 的 /ask 响应应该包含 question、keyword、intent、focusEntity、matchedEntities、matchedRelations、chunks、structuredContext、answer、keywordHitCount、entityHitCount、relationHitCount、mergedChunkCount 和 retrievalMode。
+
+retrievalMode 应该是 GRAPH_HYBRID。structuredContext 应该包含命中实体、命中关系和证据摘要。answer 应该是三段式：
+结论：
+先直接回答问题。
+
+命中的实体/关系：
+列出 matchedEntities 和 matchedRelations。
+
+证据摘要：
+列出来自 relation evidence 和 chunk evidence 的依据。
+
+六、Day 6 验收问题
+
+验收问题一：/ask 依赖哪些已有能力？
+预期 intent：SERVICE_DEPENDENCY
+预期 focusEntity：/ask
+预期 matchedEntities：/ask、SearchService、QueryUnderstandingService、RelationQueryService、ContextBuilderService、AnswerBuilderService、searchHybrid
+预期 matchedRelations：/ask DEPENDS_ON SearchService、/ask DEPENDS_ON ContextBuilderService、/ask DEPENDS_ON AnswerBuilderService
+
+验收问题二：PDF 导入依赖什么库？
+预期 intent：LIBRARY_DEPENDENCY
+预期 focusEntity：PDF
+预期 matchedEntities：PDF、PDFBox、UploadService、DocumentChunkService、/upload
+预期 matchedRelations：UploadService USES PDFBox、DocumentChunkService USES PDFBox
+
+验收问题三：embeddingStatus 属于哪张表？
+预期 intent：TABLE_OWNERSHIP
+预期 focusEntity：embeddingStatus
+预期 matchedEntities：embeddingStatus、EMBEDDING_STATUS、RAG_DOCUMENT_CHUNKS
+预期 matchedRelations：embeddingStatus BELONGS_TO RAG_DOCUMENT_CHUNKS
+
+验收问题四：/search 的排序规则是什么？
+预期 intent：SEARCH_RULE
+预期 focusEntity：/search
+预期 matchedEntities：/search、SearchService、dbms_lob.instr、DOCUMENT_ID DESC、CHUNK_INDEX ASC、RAG_DOCUMENT_CHUNKS
+预期 matchedRelations：/search DEPENDS_ON SearchService、/search DEPENDS_ON dbms_lob.instr、/search RELATED_TO RAG_DOCUMENT_CHUNKS
+
+七、最终说明
+
+本文件的作用是为 Day 6 的 Graph 增强问答提供清晰证据。上传本文件后，系统应该通过 Day 3 的实体抽取生成实体，通过 Day 5 的 RelationBuilderService 构建轻关系，再通过 Day 6 的 /ask 使用 QueryUnderstandingService、SearchService.searchHybrid、RelationQueryService、ContextBuilderService 和 AnswerBuilderService 生成 Graph 增强回答。

@@ -1,0 +1,82 @@
+RAG API Day 5 轻关系层测试说明
+
+本文件用于验证 Day 5 的轻量关系层。当前系统已经完成文档上传、chunk 保存、实体抽取、实体检索和 hybrid retrieval。Day 5 的目标是在已有实体基础上构建第一版 RAG_ENTITY_RELATIONS，不引入图数据库，只做能支撑问答的轻关系。
+
+一、PDFBox 与服务使用关系
+
+DocumentChunkService 使用 PDFBox 解析 PDF 文档内容。UploadService 在处理 /upload 上传接口时，也可能使用 PDFBox 读取上传文件中的文本。PDFBox 是当前项目处理 PDF 导入的核心库。DocumentChunkService 和 UploadService 与 PDFBox 同现时，可以建立 USES 关系，也可以建立 RELATED_TO 关系。
+
+当用户查询 PDFBox 时，系统应该能返回相邻实体 DocumentChunkService、UploadService、/upload 和 PDF。证据文本应该说明 PDFBox 被用于 PDF 文件解析和上传文档内容读取。
+
+二、embeddingStatus 与表归属关系
+
+embeddingStatus 是 chunk 处理状态字段，在数据库中对应 EMBEDDING_STATUS。该字段属于 RAG_DOCUMENT_CHUNKS 表。RAG_DOCUMENT_CHUNKS 表还包含 ID、DOCUMENT_ID、CHUNK_INDEX、CONTENT、TOKEN_COUNT、CREATE_TIME 等字段。chunkIndex、chunkContent、tokenCount 和 embeddingStatus 都可以认为属于 RAG_DOCUMENT_CHUNKS。
+
+当 embeddingStatus 与 RAG_DOCUMENT_CHUNKS 出现在同一个 chunk 中时，可以建立 BELONGS_TO 关系：
+embeddingStatus BELONGS_TO RAG_DOCUMENT_CHUNKS。
+chunkIndex BELONGS_TO RAG_DOCUMENT_CHUNKS。
+chunkContent BELONGS_TO RAG_DOCUMENT_CHUNKS。
+tokenCount BELONGS_TO RAG_DOCUMENT_CHUNKS。
+
+三、接口依赖关系
+
+/search 接口依赖 SearchService 完成关键词检索。SearchService 底层可能使用 dbms_lob.instr 在 RAG_DOCUMENT_CHUNKS.CONTENT 中查找关键词。/search 与 SearchService、dbms_lob.instr、RAG_DOCUMENT_CHUNKS 同现时，可以建立 DEPENDS_ON 或 RELATED_TO 关系。
+
+/ask 接口依赖 SearchService、ContextBuilderService 和 AnswerBuilderService。/ask 会先调用 searchHybrid 或 searchByKeyword 召回 chunk，然后交给 ContextBuilderService 构造 structuredContext，最后由 AnswerBuilderService 生成 answer。因此 /ask 与 SearchService、ContextBuilderService、AnswerBuilderService 同现时，可以建立 DEPENDS_ON 关系。
+
+rebuildChunks 方法依赖 DocumentChunkService、EntityExtractionService 和 RelationBuilderService。rebuildChunks 会重新切分文档，重新抽取实体，并重新构建关系。rebuildChunks 与 DocumentChunkService、EntityExtractionService、RelationBuilderService 同现时，可以建立 DEPENDS_ON 或 RELATED_TO 关系。
+
+四、chunk 大小定义关系
+
+chunk size 500 定义在 DocumentChunkService 的 CHUNK_SIZE 常量中。CHUNK_SIZE 用于控制 saveChunks(...) 切分文本时的长度。当前示例中可以使用 private static final int CHUNK_SIZE = 500 表示每个 chunk 大约 500 个字符。saveChunks(...) 会根据 CHUNK_SIZE 切分文档文本，并写入 RAG_DOCUMENT_CHUNKS。
+
+当 CHUNK_SIZE、chunk size 500、saveChunks(...) 和 DocumentChunkService 同现时，可以建立 DEFINED_IN 关系：
+CHUNK_SIZE DEFINED_IN DocumentChunkService。
+chunk DEFINED_IN DocumentChunkService。
+
+五、配置关系
+
+spring.datasource.url 配置在 application.yml 中，用于指定 Oracle 数据库连接地址。server.port 可以配置在 application.properties 或 application.yml 中，用于指定 Spring Boot 服务端口。spring.datasource.url 与 application.yml 同现时，可以建立 CONFIGURED_BY 关系。server.port 与 application.properties 或 application.yml 同现时，也可以建立 CONFIGURED_BY 关系。
+
+六、检索流程相关关系
+
+SearchService、ChunkHit、SearchResult、RAG_DOCUMENT_CHUNKS 在检索流程中相关。searchByEntity 会从 RAG_ENTITIES 命中实体，通过 RAG_DOCUMENT_ENTITY_LINKS 找到 CHUNK_ID，再反查 RAG_DOCUMENT_CHUNKS.CONTENT。searchHybrid 会合并 keywordHits 和 entityHits，生成 mergedChunks。QueryEntityExtractionService 负责从用户问题中抽取 QueryEntity，EntitySearchHit 表示实体检索命中的 chunk，HybridSearchResult 表示混合召回结果。
+
+这些实体在同一个 chunk 中共现时，可以先建立 RELATED_TO 关系。后续如果需要更精确的图谱关系，再进一步扩展关系类型，但当前 Day 5 只保留 DEFINED_IN、DEPENDS_ON、USES、BELONGS_TO、CONFIGURED_BY 和 RELATED_TO 六种关系。
+
+七、关系查询验收说明
+
+上传本文件后，系统应该先完成实体抽取，把 PDFBox、DocumentChunkService、UploadService、embeddingStatus、RAG_DOCUMENT_CHUNKS、/search、/ask、rebuildChunks、CHUNK_SIZE、spring.datasource.url、application.yml、server.port 等实体写入 RAG_ENTITIES，并通过 RAG_DOCUMENT_ENTITY_LINKS 关联到对应 chunk。
+
+随后 RelationBuilderService 应该基于同一 chunk 内的实体共现和规则构建 RAG_ENTITY_RELATIONS。RelationQueryService 应该支持输入一个实体名，返回相邻实体、关系类型、documentId、chunkId 和 evidenceText。
+
+验收实体包括：
+PDFBox
+embeddingStatus
+RAG_DOCUMENT_CHUNKS
+/ask
+rebuildChunks
+
+预期关系包括：
+DocumentChunkService USES PDFBox
+UploadService USES PDFBox
+embeddingStatus BELONGS_TO RAG_DOCUMENT_CHUNKS
+chunkIndex BELONGS_TO RAG_DOCUMENT_CHUNKS
+chunkContent BELONGS_TO RAG_DOCUMENT_CHUNKS
+tokenCount BELONGS_TO RAG_DOCUMENT_CHUNKS
+/search DEPENDS_ON SearchService
+/search DEPENDS_ON dbms_lob.instr
+/ask DEPENDS_ON SearchService
+/ask DEPENDS_ON ContextBuilderService
+/ask DEPENDS_ON AnswerBuilderService
+rebuildChunks DEPENDS_ON DocumentChunkService
+rebuildChunks DEPENDS_ON EntityExtractionService
+rebuildChunks DEPENDS_ON RelationBuilderService
+CHUNK_SIZE DEFINED_IN DocumentChunkService
+spring.datasource.url CONFIGURED_BY application.yml
+server.port CONFIGURED_BY application.properties
+server.port CONFIGURED_BY application.yml
+
+八、最终说明
+
+Day 5 不是为了构建完整知识图谱，而是为了让系统拥有第一版轻关系能力。只要 RAG_ENTITY_RELATIONS 能写入数据，/relations?entity=PDFBox 能返回相邻实体和证据，/relations/rebuild/{documentId} 能重建关系，就说明 Day 5 轻关系层已经端到端跑通。
