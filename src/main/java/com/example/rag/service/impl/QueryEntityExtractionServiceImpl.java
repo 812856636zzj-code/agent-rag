@@ -84,16 +84,16 @@ public class QueryEntityExtractionServiceImpl implements QueryEntityExtractionSe
     }
 
     private void collectChineseMappings(Map<String, QueryEntity> dedup, String question) {
-        addChineseKeyword(dedup, question, "库", "library");
-        addChineseKeyword(dedup, question, "依赖", "dependency");
-        addChineseKeyword(dedup, question, "导入", "upload");
-        addChineseKeyword(dedup, question, "上传", "upload");
-        addChineseKeyword(dedup, question, "表", "table");
-        addChineseKeyword(dedup, question, "字段", "field");
-        addChineseKeyword(dedup, question, "状态", "status");
-        addChineseKeyword(dedup, question, "大小", "size");
-        addChineseKeyword(dedup, question, "定义", "define");
-        addChineseKeyword(dedup, question, "分块", "chunk");
+        addChineseKeyword(dedup, question, "\u5e93", "library");
+        addChineseKeyword(dedup, question, "\u4f9d\u8d56", "dependency");
+        addChineseKeyword(dedup, question, "\u5bfc\u5165", "upload");
+        addChineseKeyword(dedup, question, "\u4e0a\u4f20", "upload");
+        addChineseKeyword(dedup, question, "\u8868", "table");
+        addChineseKeyword(dedup, question, "\u5b57\u6bb5", "field");
+        addChineseKeyword(dedup, question, "\u72b6\u6001", "status");
+        addChineseKeyword(dedup, question, "\u5927\u5c0f", "size");
+        addChineseKeyword(dedup, question, "\u5b9a\u4e49", "define");
+        addChineseKeyword(dedup, question, "\u5206\u5757", "chunk");
     }
 
     private void addLiteral(Map<String, QueryEntity> dedup,
