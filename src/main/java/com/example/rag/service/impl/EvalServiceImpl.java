@@ -2,13 +2,22 @@ package com.example.rag.service.impl;
 
 import com.example.rag.dto.Day6GraphEvalQuestion;
 import com.example.rag.dto.Day6GraphEvalResult;
+import com.example.rag.dto.Day6AgentToolEvalQuestion;
+import com.example.rag.dto.Day6AgentToolEvalResult;
+import com.example.rag.dto.AgentExecutionStep;
+import com.example.rag.dto.AgentRouteDecision;
 import com.example.rag.dto.Day7EvalQuestion;
 import com.example.rag.dto.Day7EvalResult;
 import com.example.rag.dto.AskResponse;
 import com.example.rag.dto.RelationPathItem;
 import com.example.rag.dto.SourceItem;
+import com.example.rag.enums.QuestionType;
+import com.example.rag.enums.ToolType;
+import com.example.rag.service.AgentExecutor;
+import com.example.rag.service.AgentRouterService;
 import com.example.rag.service.AskService;
 import com.example.rag.service.EvalService;
+import com.example.rag.service.QuestionClassifier;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -34,15 +43,28 @@ public class EvalServiceImpl implements EvalService {
     private static final String DAY6_EVAL_RESOURCE = "eval/day6_graph_eval_questions.json";
     private static final Path DAY6_EVAL_MARKDOWN_PATH = Paths.get("docs", "eval", "day6_graph_eval_report.md");
     private static final Path DAY6_EVAL_RAW_RESULT_PATH = Paths.get("docs", "eval", "day6_graph_eval_results.json");
+    private static final String DAY6_AGENT_TOOL_EVAL_RESOURCE = "eval/day6_agent_tool_eval_questions.json";
+    private static final Path DAY6_AGENT_TOOL_EVAL_MARKDOWN_PATH = Paths.get("docs", "eval", "day6_agent_tool_eval_report.md");
+    private static final Path DAY6_AGENT_TOOL_EVAL_RAW_RESULT_PATH = Paths.get("docs", "eval", "day6_agent_tool_eval_results.json");
     private static final String DAY7_EVAL_RESOURCE = "eval/day7_eval_questions.json";
     private static final Path DAY7_EVAL_MARKDOWN_PATH = Paths.get("docs", "eval", "eval_result.md");
     private static final Path DAY7_EVAL_RAW_RESULT_PATH = Paths.get("docs", "eval", "day7_raw_results.json");
 
     private final AskService askService;
+    private final QuestionClassifier questionClassifier;
+    private final AgentRouterService agentRouterService;
+    private final AgentExecutor agentExecutor;
     private final ObjectMapper objectMapper;
 
-    public EvalServiceImpl(AskService askService, ObjectMapper objectMapper) {
+    public EvalServiceImpl(AskService askService,
+                           QuestionClassifier questionClassifier,
+                           AgentRouterService agentRouterService,
+                           AgentExecutor agentExecutor,
+                           ObjectMapper objectMapper) {
         this.askService = askService;
+        this.questionClassifier = questionClassifier;
+        this.agentRouterService = agentRouterService;
+        this.agentExecutor = agentExecutor;
         this.objectMapper = objectMapper;
     }
 
@@ -55,6 +77,18 @@ public class EvalServiceImpl implements EvalService {
         }
         writeDay6RawResults(results);
         writeDay6Markdown(results);
+        return results;
+    }
+
+    @Override
+    public List<Day6AgentToolEvalResult> runDay6AgentToolEval() {
+        List<Day6AgentToolEvalQuestion> questions = loadDay6AgentToolQuestions();
+        List<Day6AgentToolEvalResult> results = new ArrayList<>();
+        for (Day6AgentToolEvalQuestion question : questions) {
+            results.add(runDay6AgentToolSingleQuestion(question));
+        }
+        writeDay6AgentToolRawResults(results);
+        writeDay6AgentToolMarkdown(results);
         return results;
     }
 
@@ -116,6 +150,30 @@ public class EvalServiceImpl implements EvalService {
         return result;
     }
 
+    private Day6AgentToolEvalResult runDay6AgentToolSingleQuestion(Day6AgentToolEvalQuestion evalQuestion) {
+        AskResponse routerOnly = runRouterOnly(evalQuestion.getQuestion());
+        AskResponse toolAgent = safeAsk(evalQuestion.getQuestion(), null);
+
+        Day6AgentToolEvalResult result = new Day6AgentToolEvalResult();
+        result.setId(evalQuestion.getId());
+        result.setQuestion(evalQuestion.getQuestion());
+        result.setQuestionType(evalQuestion.getQuestionType());
+        result.setExpectedTools(evalQuestion.getExpectedTools());
+        result.setRouterOnlyAnswer(routerOnly.getAnswer());
+        result.setToolAgentAnswer(toolAgent.getAnswer());
+        result.setRouterOnlyHit(matchesExpectedKeywords(routerOnly.getAnswer(), evalQuestion.getExpectedKeywords()));
+        result.setToolAgentHit(matchesExpectedKeywords(toolAgent.getAnswer(), evalQuestion.getExpectedKeywords()));
+        result.setGraphHit(hasTool(toolAgent, "GRAPH_SEARCH"));
+        result.setSqlSearchHit(isSqlSearchHit(toolAgent));
+        result.setChunkSearchHit(hasTool(toolAgent, "CHUNK_SEARCH"));
+        result.setTraceHit(hasTraceHit(toolAgent, evalQuestion.getExpectedTools()));
+        result.setSourceHit(matchesSourceTypes(toolAgent, evalQuestion.getExpectedSourceTypes()));
+        result.setEvidenceHit(matchesEvidence(toolAgent, evalQuestion.getExpectedKeywords()));
+        result.setExpectedToolsHit(hasExpectedTools(toolAgent, evalQuestion.getExpectedTools()));
+        result.setNotes(buildDay6AgentToolNotes(evalQuestion, routerOnly, toolAgent, result));
+        return result;
+    }
+
     private AskResponse safeAsk(String question, String mode) {
         try {
             return askService.ask(question, mode);
@@ -147,6 +205,49 @@ public class EvalServiceImpl implements EvalService {
         } catch (IOException ex) {
             throw new IllegalStateException("load day6 eval questions failed", ex);
         }
+    }
+
+    private List<Day6AgentToolEvalQuestion> loadDay6AgentToolQuestions() {
+        ClassPathResource resource = new ClassPathResource(DAY6_AGENT_TOOL_EVAL_RESOURCE);
+        try (InputStream inputStream = resource.getInputStream()) {
+            return objectMapper.readValue(inputStream, new TypeReference<List<Day6AgentToolEvalQuestion>>() {
+            });
+        } catch (IOException ex) {
+            throw new IllegalStateException("load day6 agent tool eval questions failed", ex);
+        }
+    }
+
+    private AskResponse runRouterOnly(String question) {
+        try {
+            QuestionType questionType = questionClassifier.classify(question);
+            AgentRouteDecision routeDecision = agentRouterService.route(question, questionType);
+            routeDecision.setSelectedTools(removeSqlSearch(routeDecision.getSelectedTools()));
+            AskResponse response = agentExecutor.execute(question, routeDecision);
+            if (response.getDebug() != null && StringUtils.hasText(response.getDebug().getRetrievalType())) {
+                response.getDebug().setRetrievalType(response.getDebug().getRetrievalType() + "_ROUTER_ONLY");
+            }
+            return response;
+        } catch (RuntimeException ex) {
+            log.error("run router-only eval failed, question = {}", question, ex);
+            AskResponse response = new AskResponse();
+            response.setQuestion(question);
+            response.setAnswer("");
+            response.setRetrievalMode("ROUTER_ONLY");
+            return response;
+        }
+    }
+
+    private List<ToolType> removeSqlSearch(List<ToolType> tools) {
+        List<ToolType> filtered = new ArrayList<>();
+        if (tools == null) {
+            return filtered;
+        }
+        for (ToolType tool : tools) {
+            if (tool != ToolType.SQL_SEARCH) {
+                filtered.add(tool);
+            }
+        }
+        return filtered;
     }
 
     private boolean isBaselineHit(Day7EvalQuestion question, AskResponse response) {
@@ -391,6 +492,35 @@ public class EvalServiceImpl implements EvalService {
         return String.join("; ", notes);
     }
 
+    private String buildDay6AgentToolNotes(Day6AgentToolEvalQuestion question,
+                                           AskResponse routerOnly,
+                                           AskResponse toolAgent,
+                                           Day6AgentToolEvalResult result) {
+        List<String> notes = new ArrayList<>();
+        if (!result.isRouterOnlyHit() && result.isToolAgentHit()) {
+            notes.add("tool-agent improved hit");
+        }
+        if (result.isSqlSearchHit()) {
+            notes.add("sql search hit");
+        }
+        if (result.isTraceHit()) {
+            notes.add("trace hit");
+        }
+        if (!result.isExpectedToolsHit()) {
+            notes.add("expected tools mismatch");
+        }
+        if (!StringUtils.hasText(routerOnly.getAnswer())) {
+            notes.add("router-only answer empty");
+        }
+        if (!StringUtils.hasText(toolAgent.getAnswer())) {
+            notes.add("tool-agent answer empty");
+        }
+        if (StringUtils.hasText(question.getNotes())) {
+            notes.add(question.getNotes());
+        }
+        return String.join("; ", notes);
+    }
+
     private boolean containsAllIgnoreCase(String text, List<String> terms) {
         if (!StringUtils.hasText(text) || terms == null || terms.isEmpty()) {
             return false;
@@ -423,6 +553,91 @@ public class EvalServiceImpl implements EvalService {
             }
         }
         return String.join(" ", safeValues);
+    }
+
+    private boolean hasTool(AskResponse response, String toolName) {
+        if (response == null || response.getDebug() == null || response.getDebug().getExecutedTools() == null) {
+            return false;
+        }
+        for (ToolType toolType : response.getDebug().getExecutedTools()) {
+            if (toolType != null && toolName.equalsIgnoreCase(toolType.name())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasTraceHit(AskResponse response, List<String> expectedTools) {
+        if (response == null
+                || response.getDebug() == null
+                || response.getDebug().getExecutionTrace() == null
+                || response.getDebug().getExecutionTrace().getSteps() == null
+                || response.getDebug().getExecutionTrace().getSteps().isEmpty()) {
+            return false;
+        }
+        for (AgentExecutionStep step : response.getDebug().getExecutionTrace().getSteps()) {
+            if (step == null || step.getToolType() == null || step.getLatencyMs() == null) {
+                return false;
+            }
+        }
+        return hasExpectedTools(response, expectedTools);
+    }
+
+    private boolean hasExpectedTools(AskResponse response, List<String> expectedTools) {
+        if (expectedTools == null || expectedTools.isEmpty()) {
+            return true;
+        }
+        for (String expectedTool : expectedTools) {
+            if (!hasTool(response, expectedTool) && !hasTraceTool(response, expectedTool)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean hasTraceTool(AskResponse response, String toolName) {
+        if (response == null
+                || response.getDebug() == null
+                || response.getDebug().getExecutionTrace() == null
+                || response.getDebug().getExecutionTrace().getSteps() == null) {
+            return false;
+        }
+        for (AgentExecutionStep step : response.getDebug().getExecutionTrace().getSteps()) {
+            if (step != null && step.getToolType() != null && toolName.equalsIgnoreCase(step.getToolType().name())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSqlSearchHit(AskResponse response) {
+        return hasTool(response, "SQL_SEARCH")
+                || containsSourceType(response, "SQL_METADATA")
+                || containsAnyIgnoreCase(response == null ? "" : response.getAnswer(), listOf("USER_TAB_COLUMNS"));
+    }
+
+    private boolean matchesSourceTypes(AskResponse response, List<String> expectedSourceTypes) {
+        if (expectedSourceTypes == null || expectedSourceTypes.isEmpty()) {
+            return response != null && (response.getSources() == null || response.getSources().isEmpty());
+        }
+        for (String expectedSourceType : expectedSourceTypes) {
+            if (!containsSourceType(response, expectedSourceType)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean containsSourceType(AskResponse response, String expectedSourceType) {
+        if (response == null || response.getSources() == null || !StringUtils.hasText(expectedSourceType)) {
+            return false;
+        }
+        for (SourceItem source : response.getSources()) {
+            if (source != null && expectedSourceType.equalsIgnoreCase(source.getSourceType())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<String> extractRelationSummaries(AskResponse response) {
@@ -492,6 +707,101 @@ public class EvalServiceImpl implements EvalService {
         } catch (IOException ex) {
             throw new IllegalStateException("write day6 eval markdown failed", ex);
         }
+    }
+
+    private void writeDay6AgentToolRawResults(List<Day6AgentToolEvalResult> results) {
+        try {
+            Files.createDirectories(DAY6_AGENT_TOOL_EVAL_RAW_RESULT_PATH.getParent());
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(DAY6_AGENT_TOOL_EVAL_RAW_RESULT_PATH.toFile(), results);
+        } catch (IOException ex) {
+            throw new IllegalStateException("write day6 agent tool raw results failed", ex);
+        }
+    }
+
+    private void writeDay6AgentToolMarkdown(List<Day6AgentToolEvalResult> results) {
+        String markdown = buildDay6AgentToolMarkdown(results);
+        try {
+            Files.createDirectories(DAY6_AGENT_TOOL_EVAL_MARKDOWN_PATH.getParent());
+            Files.write(DAY6_AGENT_TOOL_EVAL_MARKDOWN_PATH, markdown.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException ex) {
+            throw new IllegalStateException("write day6 agent tool eval markdown failed", ex);
+        }
+    }
+
+    private String buildDay6AgentToolMarkdown(List<Day6AgentToolEvalResult> results) {
+        int routerOnlyHitCount = 0;
+        int toolAgentHitCount = 0;
+        int graphHitCount = 0;
+        int sqlSearchHitCount = 0;
+        int chunkSearchHitCount = 0;
+        int traceHitCount = 0;
+        int sourceHitCount = 0;
+        int evidenceHitCount = 0;
+        int expectedToolsHitCount = 0;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("# Day 6 Agent Tool Eval Report").append("\n\n");
+        sb.append("| ID | Question Type | Question | RouterOnlyHit | ToolAgentHit | GraphHit | SqlSearchHit | ChunkSearchHit | TraceHit | SourceHit | EvidenceHit | ExpectedToolsHit | Notes |").append("\n");
+        sb.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |").append("\n");
+
+        for (Day6AgentToolEvalResult result : results) {
+            if (result.isRouterOnlyHit()) {
+                routerOnlyHitCount++;
+            }
+            if (result.isToolAgentHit()) {
+                toolAgentHitCount++;
+            }
+            if (result.isGraphHit()) {
+                graphHitCount++;
+            }
+            if (result.isSqlSearchHit()) {
+                sqlSearchHitCount++;
+            }
+            if (result.isChunkSearchHit()) {
+                chunkSearchHitCount++;
+            }
+            if (result.isTraceHit()) {
+                traceHitCount++;
+            }
+            if (result.isSourceHit()) {
+                sourceHitCount++;
+            }
+            if (result.isEvidenceHit()) {
+                evidenceHitCount++;
+            }
+            if (result.isExpectedToolsHit()) {
+                expectedToolsHitCount++;
+            }
+
+            sb.append("| ")
+                    .append(md(result.getId())).append(" | ")
+                    .append(md(result.getQuestionType())).append(" | ")
+                    .append(md(result.getQuestion())).append(" | ")
+                    .append(result.isRouterOnlyHit() ? "Y" : "N").append(" | ")
+                    .append(result.isToolAgentHit() ? "Y" : "N").append(" | ")
+                    .append(result.isGraphHit() ? "Y" : "N").append(" | ")
+                    .append(result.isSqlSearchHit() ? "Y" : "N").append(" | ")
+                    .append(result.isChunkSearchHit() ? "Y" : "N").append(" | ")
+                    .append(result.isTraceHit() ? "Y" : "N").append(" | ")
+                    .append(result.isSourceHit() ? "Y" : "N").append(" | ")
+                    .append(result.isEvidenceHit() ? "Y" : "N").append(" | ")
+                    .append(result.isExpectedToolsHit() ? "Y" : "N").append(" | ")
+                    .append(md(result.getNotes())).append(" |")
+                    .append("\n");
+        }
+
+        sb.append("\n## Summary\n\n");
+        sb.append("- totalQuestions: ").append(results.size()).append("\n");
+        sb.append("- routerOnlyHitCount: ").append(routerOnlyHitCount).append("\n");
+        sb.append("- toolAgentHitCount: ").append(toolAgentHitCount).append("\n");
+        sb.append("- graphHitCount: ").append(graphHitCount).append("\n");
+        sb.append("- sqlSearchHitCount: ").append(sqlSearchHitCount).append("\n");
+        sb.append("- chunkSearchHitCount: ").append(chunkSearchHitCount).append("\n");
+        sb.append("- traceHitCount: ").append(traceHitCount).append("\n");
+        sb.append("- sourceHitCount: ").append(sourceHitCount).append("\n");
+        sb.append("- evidenceHitCount: ").append(evidenceHitCount).append("\n");
+        sb.append("- expectedToolsHitCount: ").append(expectedToolsHitCount).append("\n");
+        return sb.toString();
     }
 
     private String buildDay6Markdown(List<Day6GraphEvalResult> results) {

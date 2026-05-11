@@ -7,6 +7,8 @@ server:
       force: true
 
 spring:
+  application:
+    name: rag-api
   datasource:
     url: jdbc:oracle:thin:@//localhost:1521/ORCLPDB
     username: RAG_APP
@@ -24,3 +26,7 @@ spring:
     multipart:
       max-file-size: 20MB
       max-request-size: 20MB
+
+agent:
+  planner:
+    type: rule

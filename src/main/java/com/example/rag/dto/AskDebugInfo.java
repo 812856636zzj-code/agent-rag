@@ -17,6 +17,7 @@ public class AskDebugInfo {
     private Integer entityCandidateCount;
     private AgentRouteDecision routeDecision;
     private List<ToolType> executedTools = new ArrayList<>();
+    private AgentExecutionTrace executionTrace;
 
     public String getRetrievalType() {
         return retrievalType;
@@ -96,5 +97,13 @@ public class AskDebugInfo {
 
     public void setExecutedTools(List<ToolType> executedTools) {
         this.executedTools = executedTools;
+    }
+
+    public AgentExecutionTrace getExecutionTrace() {
+        return executionTrace;
+    }
+
+    public void setExecutionTrace(AgentExecutionTrace executionTrace) {
+        this.executionTrace = executionTrace;
     }
 }

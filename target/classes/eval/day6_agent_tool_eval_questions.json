@@ -1,0 +1,112 @@
+[
+  {
+    "id": "A6-001",
+    "question": "RAG_DOCUMENT_CHUNKS \u8868\u6709\u54ea\u4e9b\u5b57\u6bb5",
+    "questionType": "TABLE_FIELDS",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["DOCUMENT_ID", "CHUNK_INDEX", "CONTENT", "TOKEN_COUNT", "EMBEDDING_STATUS", "CREATE_TIME"],
+    "expectedTools": ["GRAPH_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["RELATION"],
+    "expectedRelations": ["TABLE_HAS_FIELD"],
+    "notes": "graph table fields"
+  },
+  {
+    "id": "A6-002",
+    "question": "RAG_ENTITY_RELATIONS \u8868\u6709\u54ea\u4e9b\u5b57\u6bb5",
+    "questionType": "SQL_METADATA_FALLBACK",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["ID", "SOURCE_ENTITY_ID", "TARGET_ENTITY_ID", "RELATION_TYPE", "DOCUMENT_ID", "CHUNK_ID", "EVIDENCE_TEXT", "CREATED_AT", "CONFIDENCE"],
+    "expectedTools": ["GRAPH_SEARCH", "SQL_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["SQL_METADATA"],
+    "expectedRelations": [],
+    "notes": "sql metadata fallback"
+  },
+  {
+    "id": "A6-003",
+    "question": "RAG_DOCUMENTS \u8868\u6709\u54ea\u4e9b\u5b57\u6bb5",
+    "questionType": "SQL_METADATA_FALLBACK",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["ID", "FILE_NAME", "FILE_TYPE", "CONTENT", "STATUS", "CREATE_TIME", "DOCUMENT_TYPE"],
+    "expectedTools": ["GRAPH_SEARCH", "SQL_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["SQL_METADATA"],
+    "expectedRelations": [],
+    "notes": "sql metadata fallback"
+  },
+  {
+    "id": "A6-004",
+    "question": "RAG_UNKNOWN_TABLE \u8868\u6709\u54ea\u4e9b\u5b57\u6bb5",
+    "questionType": "NO_ANSWER",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["\u672a\u68c0\u7d22\u5230", "\u65e0\u6cd5\u56de\u7b54", "\u6682\u65f6"],
+    "expectedTools": ["GRAPH_SEARCH", "SQL_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": [],
+    "expectedRelations": [],
+    "notes": "graph miss plus sql miss"
+  },
+  {
+    "id": "A6-005",
+    "question": "EMBEDDING_STATUS \u5c5e\u4e8e\u54ea\u5f20\u8868",
+    "questionType": "FIELD_OWNERSHIP",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["RAG_DOCUMENT_CHUNKS", "EMBEDDING_STATUS"],
+    "expectedTools": ["GRAPH_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["RELATION"],
+    "expectedRelations": ["BELONGS_TO"],
+    "notes": "field ownership relation"
+  },
+  {
+    "id": "A6-006",
+    "question": "/ask \u4f9d\u8d56\u54ea\u4e9b\u670d\u52a1",
+    "questionType": "GRAPH_RELATION",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["SearchService", "ContextBuilderService", "AnswerBuilderService"],
+    "expectedTools": ["GRAPH_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["RELATION"],
+    "expectedRelations": ["DEPENDS_ON"],
+    "notes": "api to service relation"
+  },
+  {
+    "id": "A6-007",
+    "question": "/search \u7684\u6392\u5e8f\u89c4\u5219\u662f\u4ec0\u4e48",
+    "questionType": "CHUNK_BASELINE",
+    "expectedMode": "BASELINE",
+    "expectedKeywords": ["DOCUMENT_ID DESC", "CHUNK_INDEX ASC", "ORDER BY"],
+    "expectedTools": ["CHUNK_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["CHUNK"],
+    "expectedRelations": [],
+    "notes": "chunk baseline"
+  },
+  {
+    "id": "A6-008",
+    "question": "PDF \u5bfc\u5165\u4f9d\u8d56\u4ec0\u4e48\u5e93",
+    "questionType": "GRAPH_RELATION",
+    "expectedMode": "AGENT_GRAPH",
+    "expectedKeywords": ["PDFBox"],
+    "expectedTools": ["GRAPH_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["RELATION"],
+    "expectedRelations": ["USES", "DEPENDS_ON"],
+    "notes": "library dependency"
+  },
+  {
+    "id": "A6-009",
+    "question": "SearchService \u7684\u4f5c\u7528\u662f\u4ec0\u4e48",
+    "questionType": "CHUNK_BASELINE",
+    "expectedMode": "BASELINE",
+    "expectedKeywords": ["keyword", "entity", "hybrid"],
+    "expectedTools": ["CHUNK_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": ["CHUNK"],
+    "expectedRelations": [],
+    "notes": "definition chunk baseline"
+  },
+  {
+    "id": "A6-010",
+    "question": "\u8fd9\u4e2a\u7cfb\u7edf\u600e\u4e48\u505a Kubernetes \u8c03\u5ea6",
+    "questionType": "NO_ANSWER",
+    "expectedMode": "BASELINE",
+    "expectedKeywords": ["\u672a\u68c0\u7d22\u5230", "\u65e0\u6cd5\u56de\u7b54", "\u6682\u65f6"],
+    "expectedTools": ["CHUNK_SEARCH", "ANSWER_GENERATE"],
+    "expectedSourceTypes": [],
+    "expectedRelations": [],
+    "notes": "no answer baseline"
+  }
+]
