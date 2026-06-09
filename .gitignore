@@ -26,6 +26,10 @@ replay_pid*
 # Build output
 target/
 
+# IDE metadata
+.idea/
+.vscode/
+
 # Runtime uploads and local sample inputs
 uploads/
 rag_day*_test*.txt*
