@@ -7,6 +7,8 @@ public class ChunkHit {
     private Integer chunkIndex;
     private String content;
     private Integer tokenCount;
+    private RetrievalScoreDetail scoreDetail;
+    private String matchedQuery;
 
     public Long getChunkId() {
         return chunkId;
@@ -46,5 +48,21 @@ public class ChunkHit {
 
     public void setTokenCount(Integer tokenCount) {
         this.tokenCount = tokenCount;
+    }
+
+    public RetrievalScoreDetail getScoreDetail() {
+        return scoreDetail;
+    }
+
+    public void setScoreDetail(RetrievalScoreDetail scoreDetail) {
+        this.scoreDetail = scoreDetail;
+    }
+
+    public String getMatchedQuery() {
+        return matchedQuery;
+    }
+
+    public void setMatchedQuery(String matchedQuery) {
+        this.matchedQuery = matchedQuery;
     }
 }
