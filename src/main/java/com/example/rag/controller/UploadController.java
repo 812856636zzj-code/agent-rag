@@ -1,28 +1,27 @@
 package com.example.rag.controller;
 
+import com.example.rag.dto.DocumentMarkdown;
+import com.example.rag.dto.SearchResult;
 import com.example.rag.dto.UploadResult;
 import com.example.rag.entity.Document;
 import com.example.rag.entity.DocumentChunk;
-import com.example.rag.dto.SearchResult;
 import com.example.rag.service.DocumentChunkService;
+import com.example.rag.service.DocumentMarkdownConverter;
 import com.example.rag.service.DocumentService;
 import com.example.rag.service.SearchService;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -39,13 +38,16 @@ public class UploadController {
 
     private final DocumentService documentService;
     private final DocumentChunkService documentChunkService;
+    private final DocumentMarkdownConverter documentMarkdownConverter;
     private final SearchService searchService;
 
     public UploadController(DocumentService documentService,
                             DocumentChunkService documentChunkService,
+                            DocumentMarkdownConverter documentMarkdownConverter,
                             SearchService searchService) {
         this.documentService = documentService;
         this.documentChunkService = documentChunkService;
+        this.documentMarkdownConverter = documentMarkdownConverter;
         this.searchService = searchService;
     }
 
@@ -94,13 +96,13 @@ public class UploadController {
         }
 
         Document document = optionalDocument.get();
-        String text = document.getContent();
-        if (!StringUtils.hasText(text)) {
+        String markdown = document.getContent();
+        if (!StringUtils.hasText(markdown)) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Document content is empty");
         }
 
         try {
-            int chunkCount = documentChunkService.rebuildChunks(documentId, text);
+            int chunkCount = documentChunkService.rebuildChunks(documentId, markdown);
             return ResponseEntity.ok("rebuild success, chunks = " + chunkCount);
         } catch (Exception e) {
             e.printStackTrace();
@@ -123,41 +125,36 @@ public class UploadController {
         if (!StringUtils.hasText(originalFilename)) {
             return ResponseEntity.badRequest().body(buildUploadResult(false, false, "file name is invalid", null, null));
         }
-        String lowerFileName = originalFilename.toLowerCase();
-        if (!lowerFileName.endsWith(".txt") && !lowerFileName.endsWith(".pdf")) {
-            return ResponseEntity.badRequest().body(buildUploadResult(false, false, "only txt and pdf file are supported", null, null));
+        if (!documentMarkdownConverter.supports(originalFilename)) {
+            return ResponseEntity.badRequest().body(buildUploadResult(false, false, documentMarkdownConverter.supportedFileTypesText(), null, null));
         }
 
-        String text;
+        String markdown;
         String fileType;
         try {
-            log.info("start read document content");
-            if (lowerFileName.endsWith(".txt")) {
-                text = new String(file.getBytes(), StandardCharsets.UTF_8);
-                fileType = "txt";
-            } else {
-                try (PDDocument pdf = PDDocument.load(file.getInputStream())) {
-                    PDFTextStripper stripper = new PDFTextStripper();
-                    text = stripper.getText(pdf);
-                }
-                fileType = "pdf";
-            }
-            log.info("text length = {}", text.length());
+            log.info("start convert document content to markdown");
+            DocumentMarkdown converted = documentMarkdownConverter.convert(file, originalFilename);
+            markdown = converted.getMarkdown();
+            fileType = converted.getFileType();
+            log.info("markdown length = {}", markdown.length());
         } catch (IOException e) {
             e.printStackTrace();
             log.error("read document content failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(buildUploadResult(false, false, "read file failed", null, originalFilename));
+        } catch (IllegalArgumentException e) {
+            log.warn("unsupported document type, fileName = {}", originalFilename, e);
+            return ResponseEntity.badRequest().body(buildUploadResult(false, false, e.getMessage(), null, originalFilename));
         }
 
-        Optional<Document> duplicateDocument = documentService.findDuplicateDocument(originalFilename, text);
+        Optional<Document> duplicateDocument = documentService.findDuplicateDocument(originalFilename, markdown);
         if (duplicateDocument.isPresent()) {
             Document existingDocument = duplicateDocument.get();
             log.info("skip upload if duplicate, documentId = {}", existingDocument.getId());
             return ResponseEntity.ok(buildUploadResult(
                     false,
                     true,
-                    "该语料已上传过",
+                    "document already uploaded",
                     existingDocument.getId(),
                     existingDocument.getFileName()
             ));
@@ -182,7 +179,7 @@ public class UploadController {
         Document document;
         try {
             log.info("start save document metadata");
-            document = documentService.saveDocument(originalFilename, fileType, "UPLOADED", text, documentType);
+            document = documentService.saveDocument(originalFilename, fileType, "UPLOADED", markdown, documentType);
             log.info("document saved id = {}", document.getId());
         } catch (Exception e) {
             e.printStackTrace();
@@ -193,7 +190,7 @@ public class UploadController {
 
         try {
             log.info("start save chunks");
-            int chunkCount = documentChunkService.saveChunks(document.getId(), text);
+            int chunkCount = documentChunkService.saveChunks(document.getId(), markdown);
             log.info("chunks saved count = {}", chunkCount);
             return ResponseEntity.ok(buildUploadResult(true, false, "upload success", document.getId(), originalFilename));
         } catch (Exception e) {

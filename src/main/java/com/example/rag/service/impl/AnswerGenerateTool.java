@@ -2,7 +2,10 @@ package com.example.rag.service.impl;
 
 import com.example.rag.dto.AgentToolInput;
 import com.example.rag.dto.AgentToolResult;
+import com.example.rag.dto.AskDebugInfo;
 import com.example.rag.dto.AskResponse;
+import com.example.rag.dto.QueryRewriteResult;
+import com.example.rag.dto.RerankResult;
 import com.example.rag.dto.SqlTableColumnResult;
 import com.example.rag.enums.ToolType;
 import com.example.rag.service.AgentTool;
@@ -34,6 +37,7 @@ public class AnswerGenerateTool implements AgentTool {
                         input.getQuestion(),
                         (SqlTableColumnResult) input.getContext()
                 );
+                applyRetrievalDebug(response, input);
                 result.setSuccess(true);
                 result.setData(response);
                 result.setSummary("answer generated from sql metadata");
@@ -46,6 +50,7 @@ public class AnswerGenerateTool implements AgentTool {
                         input.getQuestion(),
                         input.getRelationHits()
                 );
+                applyRetrievalDebug(response, input);
                 result.setSuccess(true);
                 result.setData(response);
                 result.setSummary("answer generated from relation context");
@@ -58,6 +63,7 @@ public class AnswerGenerateTool implements AgentTool {
                         input.getQuestion(),
                         input.getChunkHits()
                 );
+                applyRetrievalDebug(response, input);
                 result.setSuccess(true);
                 result.setData(response);
                 result.setSummary("answer generated from chunk context");
@@ -71,6 +77,7 @@ public class AnswerGenerateTool implements AgentTool {
                     "BASELINE",
                     "BASELINE"
             );
+            applyRetrievalDebug(response, input);
             result.setData(response);
             result.setSummary("no chunk or relation context available for answer generation");
             result.setLatencyMs(System.currentTimeMillis() - start);
@@ -81,6 +88,41 @@ public class AnswerGenerateTool implements AgentTool {
             result.setSummary("answer generation failed");
             result.setLatencyMs(System.currentTimeMillis() - start);
             return result;
+        }
+    }
+
+    private void applyRetrievalDebug(AskResponse response, AgentToolInput input) {
+        if (response == null || input == null) {
+            return;
+        }
+        if (response.getDebug() == null) {
+            response.setDebug(new AskDebugInfo());
+        }
+        QueryRewriteResult rewrite = input.getRewriteResult();
+        if (rewrite != null) {
+            response.getDebug().setRewrittenQuery(rewrite.getRewrittenQuery());
+            response.getDebug().setExpandedKeywords(rewrite.getExpandedKeywords());
+            response.getDebug().setSearchQueries(rewrite.getSearchQueries());
+            response.getDebug().setDetectedIntent(rewrite.getDetectedIntent());
+            response.getDebug().setDetectedEntities(rewrite.getDetectedEntities());
+        }
+        response.getDebug().setMatchedQueries(input.getMatchedQueries());
+        response.getDebug().setRecallFallbackUsed(input.isRecallFallbackUsed());
+        response.getDebug().setCandidateCountByQuery(input.getCandidateCountByQuery());
+        response.getDebug().setCandidateCountAfterMerge(input.getCandidateCountAfterMerge());
+        response.getDebug().setDuplicateCandidateRemovedCount(input.getDuplicateCandidateRemovedCount());
+        RerankResult rerank = input.getRerankResult();
+        if (rerank != null) {
+            response.getDebug().setTopScoreDetails(rerank.getTopScoreDetails());
+            response.getDebug().setRerankBeforeChunkIds(rerank.getBeforeChunkIds());
+            response.getDebug().setRerankAfterChunkIds(rerank.getAfterChunkIds());
+            response.getDebug().setUniqueCandidateCount(rerank.getUniqueCandidateCount());
+            response.getDebug().setCandidateScoreSpread(rerank.getCandidateScoreSpread());
+            response.getDebug().setTop1Score(rerank.getTop1Score());
+            response.getDebug().setTop2Score(rerank.getTop2Score());
+            response.getDebug().setTopScoreGap(rerank.getTopScoreGap());
+            response.getDebug().setRerankChanged(rerank.isRerankChanged());
+            response.getDebug().setRerankChangeReason(rerank.getRerankChangeReason());
         }
     }
 }

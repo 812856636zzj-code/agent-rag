@@ -1,0 +1,107 @@
+[
+  {
+    "id": "EVAL-001",
+    "question": "/ask 依赖哪些核心服务？",
+    "expectedKeywords": ["SearchService", "ContextBuilderService", "AnswerBuilderService"],
+    "expectedSource": ["/ask", "SearchService"],
+    "type": "RAG"
+  },
+  {
+    "id": "EVAL-002",
+    "question": "SearchService 的作用是什么？",
+    "expectedKeywords": ["SearchService", "keyword", "entity", "hybrid"],
+    "expectedSource": ["SearchService"],
+    "type": "RAG"
+  },
+  {
+    "id": "EVAL-003",
+    "question": "ContextBuilderService 会组装哪些上下文信息？",
+    "expectedKeywords": ["matchedEntities", "matchedRelations", "retrievedChunks", "evidenceTexts"],
+    "expectedSource": ["ContextBuilderService"],
+    "type": "RAG"
+  },
+  {
+    "id": "EVAL-004",
+    "question": "AnswerBuilderService 在 /ask 流程中负责什么？",
+    "expectedKeywords": ["AnswerBuilderService", "StructuredContext", "回答"],
+    "expectedSource": ["AnswerBuilderService"],
+    "type": "RAG"
+  },
+  {
+    "id": "EVAL-005",
+    "question": "RAG_DOCUMENT_CHUNKS 表有哪些关键字段？",
+    "expectedKeywords": ["DOCUMENT_ID", "CHUNK_INDEX", "CONTENT", "TOKEN_COUNT", "CREATE_TIME", "EMBEDDING_STATUS"],
+    "expectedSource": ["RAG_DOCUMENT_CHUNKS"],
+    "type": "entity"
+  },
+  {
+    "id": "EVAL-006",
+    "question": "embeddingStatus 属于哪张表？",
+    "expectedKeywords": ["embeddingStatus", "RAG_DOCUMENT_CHUNKS", "EMBEDDING_STATUS"],
+    "expectedSource": ["EMBEDDING_STATUS"],
+    "type": "entity"
+  },
+  {
+    "id": "EVAL-007",
+    "question": "RAG_ENTITY_RELATIONS 表有哪些字段？",
+    "expectedKeywords": ["SOURCE_ENTITY_ID", "TARGET_ENTITY_ID", "RELATION_TYPE", "DOCUMENT_ID", "CHUNK_ID", "EVIDENCE_TEXT", "CREATED_AT", "CONFIDENCE"],
+    "expectedSource": ["RAG_ENTITY_RELATIONS"],
+    "type": "entity"
+  },
+  {
+    "id": "EVAL-008",
+    "question": "/search 的排序规则是什么？",
+    "expectedKeywords": ["DOCUMENT_ID DESC", "CHUNK_INDEX ASC"],
+    "expectedSource": ["/search", "CHUNK_INDEX"],
+    "type": "relation"
+  },
+  {
+    "id": "EVAL-009",
+    "question": "/ask 和 SearchService 是什么关系？",
+    "expectedKeywords": ["/ask", "DEPENDS_ON", "SearchService"],
+    "expectedSource": ["/ask", "SearchService"],
+    "type": "relation"
+  },
+  {
+    "id": "EVAL-010",
+    "question": "/ask 和 ContextBuilderService 是什么关系？",
+    "expectedKeywords": ["/ask", "DEPENDS_ON", "ContextBuilderService"],
+    "expectedSource": ["/ask", "ContextBuilderService"],
+    "type": "relation"
+  },
+  {
+    "id": "EVAL-011",
+    "question": "图增强问答相比 baseline 会多利用什么信息？",
+    "expectedKeywords": ["关系", "实体", "relation", "graph"],
+    "expectedSource": ["RelationQueryService", "matchedRelations"],
+    "type": "graph"
+  },
+  {
+    "id": "EVAL-012",
+    "question": "RelationQueryService 的作用是什么？",
+    "expectedKeywords": ["RelationQueryService", "关系", "实体"],
+    "expectedSource": ["RelationQueryService"],
+    "type": "graph"
+  },
+  {
+    "id": "EVAL-013",
+    "question": "QueryUnderstandingService 会识别哪些查询信息？",
+    "expectedKeywords": ["intent", "focusEntity", "keyword", "queryTerms", "boostTerms"],
+    "expectedSource": ["QueryUnderstandingService"],
+    "type": "RAG"
+  },
+  {
+    "id": "EVAL-014",
+    "question": "回答里应该如何呈现来源证据？",
+    "expectedKeywords": ["证据", "sources", "evidence"],
+    "expectedSource": ["evidence"],
+    "type": "sources"
+  },
+  {
+    "id": "EVAL-015",
+    "question": "评测回答中是否应该出现 TEST_SPEC 或 oracle.sql.CLOB 这类噪声？",
+    "expectedKeywords": ["不应该", "噪声", "TEST_SPEC", "oracle.sql.CLOB"],
+    "expectedSource": ["TEST_SPEC", "oracle.sql.CLOB"],
+    "type": "noise"
+  }
+]
