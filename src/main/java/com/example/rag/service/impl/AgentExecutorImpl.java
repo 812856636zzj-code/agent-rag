@@ -2,18 +2,23 @@ package com.example.rag.service.impl;
 
 import com.example.rag.dto.AgentExecutionStep;
 import com.example.rag.dto.AgentExecutionTrace;
+import com.example.rag.dto.AgentMemoryItem;
 import com.example.rag.dto.AgentRouteDecision;
 import com.example.rag.dto.AgentToolInput;
 import com.example.rag.dto.AgentToolResult;
 import com.example.rag.dto.AskDebugInfo;
 import com.example.rag.dto.AskResponse;
 import com.example.rag.dto.ChunkHit;
+import com.example.rag.dto.QueryEntity;
+import com.example.rag.dto.QueryUnderstanding;
 import com.example.rag.dto.RelationHit;
 import com.example.rag.dto.SqlTableColumnResult;
 import com.example.rag.enums.QuestionType;
 import com.example.rag.enums.ToolType;
 import com.example.rag.service.AgentExecutor;
 import com.example.rag.service.AgentTool;
+import com.example.rag.service.MemoryService;
+import com.example.rag.service.QueryUnderstandingService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -33,21 +38,37 @@ public class AgentExecutorImpl implements AgentExecutor {
     private final ChunkSearchTool chunkSearchTool;
     private final SqlSearchTool sqlSearchTool;
     private final AnswerGenerateTool answerGenerateTool;
+    private final QueryUnderstandingService queryUnderstandingService;
+    private final MemoryService memoryService;
 
     public AgentExecutorImpl(GraphSearchTool graphSearchTool,
                              ChunkSearchTool chunkSearchTool,
                              SqlSearchTool sqlSearchTool,
-                             AnswerGenerateTool answerGenerateTool) {
+                             AnswerGenerateTool answerGenerateTool,
+                             QueryUnderstandingService queryUnderstandingService,
+                             MemoryService memoryService) {
         this.graphSearchTool = graphSearchTool;
         this.chunkSearchTool = chunkSearchTool;
         this.sqlSearchTool = sqlSearchTool;
         this.answerGenerateTool = answerGenerateTool;
+        this.queryUnderstandingService = queryUnderstandingService;
+        this.memoryService = memoryService;
     }
 
     @Override
     public AskResponse execute(String question, AgentRouteDecision routeDecision) {
         AgentExecutionTrace trace = new AgentExecutionTrace();
         trace.setTraceId(UUID.randomUUID().toString());
+        QueryUnderstanding understanding = safeUnderstand(question);
+        List<AgentMemoryItem> relevantMemories = memoryService.findRelevantMemories(
+                question,
+                understanding == null || understanding.getIntent() == null ? null : understanding.getIntent().name(),
+                extractDetectedEntities(understanding),
+                null
+        );
+        trace.setMemoriesQueried(relevantMemories.size());
+        trace.setMemoriesUsed(relevantMemories);
+        trace.setMemoryMatchReason(buildMemoryMatchReason(relevantMemories));
 
         AgentToolInput input = new AgentToolInput();
         input.setQuestion(question);
@@ -108,6 +129,7 @@ public class AgentExecutorImpl implements AgentExecutor {
         }
 
         applyTrace(response, routeDecision, trace);
+        memoryService.saveFromTrace(trace, response, understanding);
         return response;
     }
 
@@ -171,6 +193,9 @@ public class AgentExecutorImpl implements AgentExecutor {
         response.getDebug().setRouteDecision(routeDecision);
         response.getDebug().setExecutionTrace(trace);
         response.getDebug().setExecutedTools(extractExecutedTools(trace));
+        response.getDebug().setMemoriesQueried(trace == null ? 0 : trace.getMemoriesQueried());
+        response.getDebug().setMemoriesUsed(trace == null ? new ArrayList<>() : trace.getMemoriesUsed());
+        response.getDebug().setMemoryMatchReason(trace == null ? "" : trace.getMemoryMatchReason());
     }
 
     private List<ToolType> extractExecutedTools(AgentExecutionTrace trace) {
@@ -196,6 +221,53 @@ public class AgentExecutorImpl implements AgentExecutor {
                 + ", questionType=" + input.getQuestionType()
                 + ", relationHits=" + relationCount
                 + ", chunkHits=" + chunkCount;
+    }
+
+    private QueryUnderstanding safeUnderstand(String question) {
+        try {
+            return queryUnderstandingService.understand(question);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    private List<String> extractDetectedEntities(QueryUnderstanding understanding) {
+        List<String> entities = new ArrayList<>();
+        if (understanding == null) {
+            return entities;
+        }
+        if (StringUtils.hasText(understanding.getFocusEntity())) {
+            entities.add(understanding.getFocusEntity());
+        }
+        if (understanding.getQueryEntities() != null) {
+            for (QueryEntity entity : understanding.getQueryEntities()) {
+                if (entity == null) {
+                    continue;
+                }
+                if (StringUtils.hasText(entity.getText())) {
+                    entities.add(entity.getText());
+                } else if (StringUtils.hasText(entity.getNormalizedText())) {
+                    entities.add(entity.getNormalizedText());
+                }
+            }
+        }
+        return entities;
+    }
+
+    private String buildMemoryMatchReason(List<AgentMemoryItem> memories) {
+        if (memories == null || memories.isEmpty()) {
+            return "no relevant memory matched";
+        }
+        List<String> reasons = new ArrayList<>();
+        for (AgentMemoryItem memory : memories) {
+            if (memory == null || !StringUtils.hasText(memory.getMemoryMatchReason())) {
+                continue;
+            }
+            if (!reasons.contains(memory.getMemoryMatchReason())) {
+                reasons.add(memory.getMemoryMatchReason());
+            }
+        }
+        return reasons.isEmpty() ? "memory matched by relevance score" : String.join("; ", reasons);
     }
 
     private boolean usesSqlSearch(AgentRouteDecision routeDecision) {

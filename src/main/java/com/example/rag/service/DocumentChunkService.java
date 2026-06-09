@@ -17,12 +17,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class DocumentChunkService {
 
     private static final Logger log = LoggerFactory.getLogger(DocumentChunkService.class);
     private static final int CHUNK_SIZE = 500;
+    private static final int MARKDOWN_CHUNK_SIZE = 900;
+    private static final Pattern MARKDOWN_HEADING_PATTERN = Pattern.compile("^(#{1,6})\\s+(.+)$");
+    private static final Pattern SOURCE_HEADING_PATTERN = Pattern.compile("^##\\s+(Page|Slide)\\s+(.+)$", Pattern.CASE_INSENSITIVE);
     private static final List<String> NOISE_KEYWORDS = Arrays.asList(
             "classpath",
             "org.springframework",
@@ -166,6 +171,11 @@ public class DocumentChunkService {
             return chunks;
         }
 
+        List<MarkdownBlock> blocks = parseMarkdownBlocks(text);
+        if (!blocks.isEmpty()) {
+            return buildMarkdownChunks(documentId, blocks);
+        }
+
         int chunkIndex = 0;
         for (int start = 0; start < text.length(); start += CHUNK_SIZE) {
             int end = Math.min(start + CHUNK_SIZE, text.length());
@@ -182,6 +192,141 @@ public class DocumentChunkService {
             chunkIndex++;
         }
         return chunks;
+    }
+
+    private List<DocumentChunk> buildMarkdownChunks(Long documentId, List<MarkdownBlock> blocks) {
+        List<DocumentChunk> chunks = new ArrayList<>();
+        String currentSource = "";
+        String currentSectionPath = "";
+        StringBuilder current = new StringBuilder();
+        int chunkIndex = 0;
+
+        for (MarkdownBlock block : blocks) {
+            if (block == null || !StringUtils.hasText(block.getText())) {
+                continue;
+            }
+            currentSource = StringUtils.hasText(block.getSource()) ? block.getSource() : currentSource;
+            currentSectionPath = StringUtils.hasText(block.getSectionPath()) ? block.getSectionPath() : currentSectionPath;
+
+            String decorated = decorateMarkdownBlock(block);
+            if (current.length() > 0 && current.length() + decorated.length() > MARKDOWN_CHUNK_SIZE) {
+                chunks.add(newChunk(documentId, chunkIndex++, current.toString().trim()));
+                current.setLength(0);
+            }
+            if (current.length() == 0) {
+                appendChunkHeader(current, currentSource, currentSectionPath);
+            }
+            current.append(decorated).append("\n\n");
+        }
+
+        if (current.length() > 0) {
+            chunks.add(newChunk(documentId, chunkIndex, current.toString().trim()));
+        }
+        return chunks;
+    }
+
+    private DocumentChunk newChunk(Long documentId, int chunkIndex, String content) {
+        DocumentChunk chunk = new DocumentChunk();
+        chunk.setDocumentId(documentId);
+        chunk.setChunkIndex(chunkIndex);
+        chunk.setContent(content);
+        chunk.setTokenCount(content.length());
+        chunk.setEmbeddingStatus("PENDING");
+        return chunk;
+    }
+
+    private void appendChunkHeader(StringBuilder current, String source, String sectionPath) {
+        current.append("<!-- source: ").append(StringUtils.hasText(source) ? source : "document").append(" -->\n");
+        current.append("<!-- section: ").append(StringUtils.hasText(sectionPath) ? sectionPath : "root").append(" -->\n\n");
+    }
+
+    private String decorateMarkdownBlock(MarkdownBlock block) {
+        String text = block.getText();
+        if (block.isTable()) {
+            return text;
+        }
+        return text.trim();
+    }
+
+    private List<MarkdownBlock> parseMarkdownBlocks(String markdown) {
+        List<MarkdownBlock> blocks = new ArrayList<>();
+        String[] lines = markdown.replace("\r", "\n").split("\n");
+        String[] headings = new String[6];
+        String currentSource = "";
+        StringBuilder paragraph = new StringBuilder();
+        StringBuilder table = new StringBuilder();
+
+        for (String rawLine : lines) {
+            String line = rawLine == null ? "" : rawLine.trim();
+            if (!StringUtils.hasText(line)) {
+                flushParagraph(blocks, paragraph, headings, currentSource);
+                flushTable(blocks, table, headings, currentSource);
+                continue;
+            }
+
+            Matcher headingMatcher = MARKDOWN_HEADING_PATTERN.matcher(line);
+            if (headingMatcher.matches()) {
+                flushParagraph(blocks, paragraph, headings, currentSource);
+                flushTable(blocks, table, headings, currentSource);
+
+                int level = headingMatcher.group(1).length();
+                String headingText = headingMatcher.group(2).trim();
+                headings[level - 1] = headingText;
+                for (int i = level; i < headings.length; i++) {
+                    headings[i] = null;
+                }
+                Matcher sourceMatcher = SOURCE_HEADING_PATTERN.matcher(line);
+                if (sourceMatcher.matches()) {
+                    currentSource = sourceMatcher.group(1) + " " + sourceMatcher.group(2);
+                }
+                blocks.add(new MarkdownBlock(line, false, buildSectionPath(headings), currentSource));
+                continue;
+            }
+
+            if (line.startsWith("|")) {
+                flushParagraph(blocks, paragraph, headings, currentSource);
+                table.append(line).append("\n");
+                continue;
+            }
+
+            flushTable(blocks, table, headings, currentSource);
+            if (paragraph.length() > 0) {
+                paragraph.append("\n");
+            }
+            paragraph.append(line);
+        }
+
+        flushParagraph(blocks, paragraph, headings, currentSource);
+        flushTable(blocks, table, headings, currentSource);
+        return blocks;
+    }
+
+    private void flushParagraph(List<MarkdownBlock> blocks, StringBuilder paragraph, String[] headings, String source) {
+        if (!StringUtils.hasText(paragraph.toString())) {
+            paragraph.setLength(0);
+            return;
+        }
+        blocks.add(new MarkdownBlock(paragraph.toString().trim(), false, buildSectionPath(headings), source));
+        paragraph.setLength(0);
+    }
+
+    private void flushTable(List<MarkdownBlock> blocks, StringBuilder table, String[] headings, String source) {
+        if (!StringUtils.hasText(table.toString())) {
+            table.setLength(0);
+            return;
+        }
+        blocks.add(new MarkdownBlock(table.toString().trim(), true, buildSectionPath(headings), source));
+        table.setLength(0);
+    }
+
+    private String buildSectionPath(String[] headings) {
+        List<String> values = new ArrayList<>();
+        for (String heading : headings) {
+            if (StringUtils.hasText(heading)) {
+                values.add(heading);
+            }
+        }
+        return String.join(" > ", values);
     }
 
     private List<DocumentChunk> filterNoiseChunks(List<DocumentChunk> chunks) {
@@ -208,6 +353,37 @@ public class DocumentChunkService {
             }
         }
         return false;
+    }
+
+    private static class MarkdownBlock {
+
+        private final String text;
+        private final boolean table;
+        private final String sectionPath;
+        private final String source;
+
+        private MarkdownBlock(String text, boolean table, String sectionPath, String source) {
+            this.text = text;
+            this.table = table;
+            this.sectionPath = sectionPath;
+            this.source = source;
+        }
+
+        private String getText() {
+            return text;
+        }
+
+        private boolean isTable() {
+            return table;
+        }
+
+        private String getSectionPath() {
+            return sectionPath;
+        }
+
+        private String getSource() {
+            return source;
+        }
     }
 
 }

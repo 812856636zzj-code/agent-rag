@@ -3,8 +3,10 @@ package com.example.rag.controller;
 import com.example.rag.dto.Day6GraphEvalResult;
 import com.example.rag.dto.Day6AgentToolEvalResult;
 import com.example.rag.dto.Day7EvalResult;
+import com.example.rag.dto.EvalRunSummary;
 import com.example.rag.service.EvalService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -16,6 +18,11 @@ public class EvalController {
 
     public EvalController(EvalService evalService) {
         this.evalService = evalService;
+    }
+
+    @PostMapping("/eval/run")
+    public EvalRunSummary runEval() {
+        return evalService.runEval();
     }
 
     @GetMapping("/eval/day6/graph/run")

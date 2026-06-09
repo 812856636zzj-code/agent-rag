@@ -3,10 +3,13 @@ package com.example.rag.service;
 import com.example.rag.dto.Day6GraphEvalResult;
 import com.example.rag.dto.Day6AgentToolEvalResult;
 import com.example.rag.dto.Day7EvalResult;
+import com.example.rag.dto.EvalRunSummary;
 
 import java.util.List;
 
 public interface EvalService {
+
+    EvalRunSummary runEval();
 
     List<Day6GraphEvalResult> runDay6GraphEval();
 
