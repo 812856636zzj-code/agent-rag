@@ -48,6 +48,7 @@ public class AskServiceImpl implements AskService {
     private final QueryUnderstandingService queryUnderstandingService;
     private final QuestionClassifier questionClassifier;
     private final AgentRouterService agentRouterService;
+    private final AgentExecutor agentExecutor;
     private final SearchService searchService;
     private final RelationQueryService relationQueryService;
     private final RelationSearchService relationSearchService;
@@ -61,6 +62,7 @@ public class AskServiceImpl implements AskService {
     public AskServiceImpl(QueryUnderstandingService queryUnderstandingService,
                           QuestionClassifier questionClassifier,
                           AgentRouterService agentRouterService,
+                          AgentExecutor agentExecutor,
                           SearchService searchService,
                           RelationQueryService relationQueryService,
                           RelationSearchService relationSearchService,
@@ -73,6 +75,7 @@ public class AskServiceImpl implements AskService {
         this.queryUnderstandingService = queryUnderstandingService;
         this.questionClassifier = questionClassifier;
         this.agentRouterService = agentRouterService;
+        this.agentExecutor = agentExecutor;
         this.searchService = searchService;
         this.relationQueryService = relationQueryService;
         this.relationSearchService = relationSearchService;
@@ -93,15 +96,8 @@ public class AskServiceImpl implements AskService {
     public AskResponse ask(String question, String mode) {
         if ("baseline".equalsIgnoreCase(normalizeMode(mode))) {
             QuestionType questionType = questionClassifier.classify(question);
-            AgentRouteDecision routeDecision = agentRouterService.route(question, questionType);
-            AskResponse baseline = askBaseline(question);
-            baseline.setMode("BASELINE");
-            baseline.setRetrievalMode("BASELINE");
-            if (baseline.getDebug() != null) {
-                baseline.getDebug().setRetrievalType("BASELINE");
-            }
-            applyRouteDebug(baseline, routeDecision, buildExecutedTools(ToolType.CHUNK_SEARCH, ToolType.ANSWER_GENERATE));
-            return baseline;
+            AgentRouteDecision routeDecision = buildForcedBaselineRouteDecision(questionType);
+            return agentExecutor.execute(question, routeDecision);
         }
         return askByQuestionType(question);
     }
@@ -109,37 +105,7 @@ public class AskServiceImpl implements AskService {
     private AskResponse askByQuestionType(String question) {
         QuestionType questionType = questionClassifier.classify(question);
         AgentRouteDecision routeDecision = agentRouterService.route(question, questionType);
-        if (questionType == QuestionType.RELATION && containsSelectedTool(routeDecision, ToolType.GRAPH_SEARCH)) {
-            AskResponse relationFirstResponse = askRelationFirst(question);
-            if (relationFirstResponse != null) {
-                relationFirstResponse.setMode("AGENT_GRAPH");
-                relationFirstResponse.setRetrievalMode("AGENT_GRAPH");
-                if (relationFirstResponse.getDebug() != null) {
-                    relationFirstResponse.getDebug().setRetrievalType("AGENT_GRAPH");
-                }
-                applyRouteDebug(relationFirstResponse, routeDecision,
-                        buildExecutedTools(ToolType.GRAPH_SEARCH, ToolType.ANSWER_GENERATE));
-                return relationFirstResponse;
-            }
-            AskResponse fallback = askBaseline(question);
-            fallback.setMode("BASELINE_FALLBACK");
-            fallback.setRetrievalMode("BASELINE_FALLBACK");
-            if (fallback.getDebug() != null) {
-                fallback.getDebug().setRetrievalType("BASELINE_FALLBACK");
-            }
-            applyRouteDebug(fallback, routeDecision,
-                    buildExecutedTools(ToolType.GRAPH_SEARCH, ToolType.CHUNK_SEARCH, ToolType.ANSWER_GENERATE));
-            return fallback;
-        }
-
-        AskResponse baseline = askBaseline(question);
-        baseline.setMode("BASELINE");
-        baseline.setRetrievalMode("BASELINE");
-        if (baseline.getDebug() != null) {
-            baseline.getDebug().setRetrievalType("BASELINE");
-        }
-        applyRouteDebug(baseline, routeDecision, buildExecutedTools(ToolType.CHUNK_SEARCH, ToolType.ANSWER_GENERATE));
-        return baseline;
+        return agentExecutor.execute(question, routeDecision);
     }
 
     private AskResponse askBaseline(String question) {
@@ -705,6 +671,14 @@ public class AskServiceImpl implements AskService {
             executedTools.add(toolType);
         }
         return executedTools;
+    }
+
+    private AgentRouteDecision buildForcedBaselineRouteDecision(QuestionType questionType) {
+        AgentRouteDecision decision = new AgentRouteDecision();
+        decision.setQuestionType(questionType);
+        decision.setSelectedTools(buildExecutedTools(ToolType.CHUNK_SEARCH, ToolType.ANSWER_GENERATE));
+        decision.setReason("forced baseline mode uses chunk search and answer generation");
+        return decision;
     }
 
     private String resolveDocumentName(Long documentId) {
