@@ -10,6 +10,11 @@ public class AgentExecutionTrace {
     private int memoriesQueried;
     private List<AgentMemoryItem> memoriesUsed = new ArrayList<>();
     private String memoryMatchReason;
+    private String answerProvider;
+    private String answerModelName;
+    private Long answerLatencyMs;
+    private boolean answerFallbackUsed;
+    private String answerErrorMessage;
 
     public String getTraceId() {
         return traceId;
@@ -49,5 +54,45 @@ public class AgentExecutionTrace {
 
     public void setMemoryMatchReason(String memoryMatchReason) {
         this.memoryMatchReason = memoryMatchReason;
+    }
+
+    public String getAnswerProvider() {
+        return answerProvider;
+    }
+
+    public void setAnswerProvider(String answerProvider) {
+        this.answerProvider = answerProvider;
+    }
+
+    public String getAnswerModelName() {
+        return answerModelName;
+    }
+
+    public void setAnswerModelName(String answerModelName) {
+        this.answerModelName = answerModelName;
+    }
+
+    public Long getAnswerLatencyMs() {
+        return answerLatencyMs;
+    }
+
+    public void setAnswerLatencyMs(Long answerLatencyMs) {
+        this.answerLatencyMs = answerLatencyMs;
+    }
+
+    public boolean isAnswerFallbackUsed() {
+        return answerFallbackUsed;
+    }
+
+    public void setAnswerFallbackUsed(boolean answerFallbackUsed) {
+        this.answerFallbackUsed = answerFallbackUsed;
+    }
+
+    public String getAnswerErrorMessage() {
+        return answerErrorMessage;
+    }
+
+    public void setAnswerErrorMessage(String answerErrorMessage) {
+        this.answerErrorMessage = answerErrorMessage;
     }
 }
