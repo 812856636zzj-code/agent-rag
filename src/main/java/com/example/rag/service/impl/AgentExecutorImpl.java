@@ -144,6 +144,13 @@ public class AgentExecutorImpl implements AgentExecutor {
         step.setErrorMessage(result.getErrorMessage());
         step.setLatencyMs(result.getLatencyMs());
         trace.getSteps().add(step);
+        if (tool.type() == ToolType.ANSWER_GENERATE) {
+            trace.setAnswerProvider(result.getAnswerProvider());
+            trace.setAnswerModelName(result.getAnswerModelName());
+            trace.setAnswerLatencyMs(result.getLatencyMs());
+            trace.setAnswerFallbackUsed(result.isAnswerFallbackUsed());
+            trace.setAnswerErrorMessage(result.getErrorMessage());
+        }
         return result;
     }
 
@@ -196,6 +203,11 @@ public class AgentExecutorImpl implements AgentExecutor {
         response.getDebug().setMemoriesQueried(trace == null ? 0 : trace.getMemoriesQueried());
         response.getDebug().setMemoriesUsed(trace == null ? new ArrayList<>() : trace.getMemoriesUsed());
         response.getDebug().setMemoryMatchReason(trace == null ? "" : trace.getMemoryMatchReason());
+        response.getDebug().setAnswerProvider(trace == null ? null : trace.getAnswerProvider());
+        response.getDebug().setAnswerModelName(trace == null ? null : trace.getAnswerModelName());
+        response.getDebug().setAnswerLatencyMs(trace == null ? null : trace.getAnswerLatencyMs());
+        response.getDebug().setAnswerFallbackUsed(trace != null && trace.isAnswerFallbackUsed());
+        response.getDebug().setAnswerErrorMessage(trace == null ? null : trace.getAnswerErrorMessage());
     }
 
     private List<ToolType> extractExecutedTools(AgentExecutionTrace trace) {

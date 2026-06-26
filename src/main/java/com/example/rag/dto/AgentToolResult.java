@@ -10,6 +10,9 @@ public class AgentToolResult {
     private Object data;
     private String errorMessage;
     private Long latencyMs;
+    private String answerProvider;
+    private String answerModelName;
+    private boolean answerFallbackUsed;
 
     public ToolType getToolType() {
         return toolType;
@@ -57,5 +60,29 @@ public class AgentToolResult {
 
     public void setLatencyMs(Long latencyMs) {
         this.latencyMs = latencyMs;
+    }
+
+    public String getAnswerProvider() {
+        return answerProvider;
+    }
+
+    public void setAnswerProvider(String answerProvider) {
+        this.answerProvider = answerProvider;
+    }
+
+    public String getAnswerModelName() {
+        return answerModelName;
+    }
+
+    public void setAnswerModelName(String answerModelName) {
+        this.answerModelName = answerModelName;
+    }
+
+    public boolean isAnswerFallbackUsed() {
+        return answerFallbackUsed;
+    }
+
+    public void setAnswerFallbackUsed(boolean answerFallbackUsed) {
+        this.answerFallbackUsed = answerFallbackUsed;
     }
 }

@@ -51,6 +51,10 @@ public class EvalRunResult {
     private List<Long> rerankBeforeChunkIds = new ArrayList<>();
     private List<Long> rerankAfterChunkIds = new ArrayList<>();
     private List<String> diagnosisReason = new ArrayList<>();
+    private String answerProvider;
+    private String modelName;
+    private Long answerLatencyMs;
+    private boolean fallbackUsed;
     private String notes;
 
     public String getId() {
@@ -419,6 +423,38 @@ public class EvalRunResult {
 
     public void setDiagnosisReason(List<String> diagnosisReason) {
         this.diagnosisReason = diagnosisReason;
+    }
+
+    public String getAnswerProvider() {
+        return answerProvider;
+    }
+
+    public void setAnswerProvider(String answerProvider) {
+        this.answerProvider = answerProvider;
+    }
+
+    public String getModelName() {
+        return modelName;
+    }
+
+    public void setModelName(String modelName) {
+        this.modelName = modelName;
+    }
+
+    public Long getAnswerLatencyMs() {
+        return answerLatencyMs;
+    }
+
+    public void setAnswerLatencyMs(Long answerLatencyMs) {
+        this.answerLatencyMs = answerLatencyMs;
+    }
+
+    public boolean isFallbackUsed() {
+        return fallbackUsed;
+    }
+
+    public void setFallbackUsed(boolean fallbackUsed) {
+        this.fallbackUsed = fallbackUsed;
     }
 
     public String getNotes() {

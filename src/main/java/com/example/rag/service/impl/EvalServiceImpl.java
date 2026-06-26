@@ -523,6 +523,10 @@ public class EvalServiceImpl implements EvalService {
         result.setTopScoreGap(graph.getDebug().getTopScoreGap());
         result.setRerankChanged(graph.getDebug().isRerankChanged());
         result.setRerankChangeReason(graph.getDebug().getRerankChangeReason());
+        result.setAnswerProvider(graph.getDebug().getAnswerProvider());
+        result.setModelName(graph.getDebug().getAnswerModelName());
+        result.setAnswerLatencyMs(graph.getDebug().getAnswerLatencyMs());
+        result.setFallbackUsed(graph.getDebug().isAnswerFallbackUsed());
     }
 
     private void fillEvalRunDiagnosis(EvalRunResult result, AskResponse baseline, AskResponse graph) {

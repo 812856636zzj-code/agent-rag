@@ -30,3 +30,13 @@ spring:
 agent:
   planner:
     type: rule
+
+answer:
+  mode: rule
+  langchain4j:
+    enabled: false
+    modelName: gpt-4o-mini
+    timeoutMs: 8000
+    maxTokens: 800
+    fallbackEnabled: true
+    apiKey: ${OPENAI_API_KEY:}
