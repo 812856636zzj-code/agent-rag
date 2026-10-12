@@ -8,12 +8,14 @@ import com.example.rag.dto.AskDebugInfo;
 import com.example.rag.dto.AskResponse;
 import com.example.rag.dto.ChunkHit;
 import com.example.rag.dto.LlmAnswerResult;
+import com.example.rag.dto.LlmAnswerRequest;
 import com.example.rag.dto.SourceItem;
 import com.example.rag.repository.DocumentChunkRepository;
 import com.example.rag.repository.DocumentRepository;
 import com.example.rag.service.AnswerBuilderService;
 import com.example.rag.service.ContextBuilderService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.any;
 
@@ -178,6 +181,52 @@ class AnswerGenerateToolTest {
         assertTrue(response.getSources().isEmpty());
         assertEquals(1, response.getMergedChunkCount());
         assertEquals(1, response.getDebug().getHitCount());
+    }
+
+    @Test
+    void removesUnsupportedCitationFromMixedEvidenceBeforeModelGeneration() {
+        AgentAnswerAssembler assembler = mock(AgentAnswerAssembler.class);
+        AgentToolInput input = chunkInput();
+        ChunkHit secondHit = new ChunkHit();
+        secondHit.setChunkId(3L);
+        secondHit.setDocumentId(4L);
+        secondHit.setContent("unrelated raw content");
+        input.getChunkHits().add(secondHit);
+
+        AskResponse assembled = responseWithSource("supported answer");
+        assembled.setMergedChunkCount(2);
+        assembled.getDebug().setHitCount(2);
+        SourceItem unsupported = new SourceItem();
+        unsupported.setSourceType("CHUNK");
+        unsupported.setDocumentName("unrelated.md");
+        unsupported.setChunkId(3L);
+        unsupported.setEvidenceSentences(List.of(" ", ""));
+        assembled.getSources().add(unsupported);
+        when(assembler.buildChunkResponse(input.getQuestion(), input.getChunkHits())).thenReturn(assembled);
+
+        AnswerGenerationProperties properties = new AnswerGenerationProperties();
+        properties.setMode("langchain4j");
+        properties.getLangchain4j().setEnabled(true);
+        LangChain4jAnswerClient model = mock(LangChain4jAnswerClient.class);
+        LlmAnswerResult generated = new LlmAnswerResult();
+        generated.setAnswer("supported answer");
+        generated.setProvider("MODEL");
+        when(model.generate(any())).thenReturn(generated);
+        AnswerGenerateTool tool = new AnswerGenerateTool(
+                assembler, new RuleBasedAnswerClient(), model, properties
+        );
+
+        AgentToolResult result = tool.execute(input);
+        AskResponse response = (AskResponse) result.getData();
+        ArgumentCaptor<LlmAnswerRequest> request = ArgumentCaptor.forClass(LlmAnswerRequest.class);
+        verify(model).generate(request.capture());
+
+        assertTrue(result.isSuccess());
+        assertEquals(1, response.getSources().size(), "Only evidenced sources should be published");
+        assertEquals("doc.md", response.getSources().get(0).getDocumentName());
+        assertEquals(1, request.getValue().getSources().size(), "Model source preview must match citations");
+        assertEquals(2, response.getMergedChunkCount(), "Retrieval diagnostics still count both hits");
+        assertEquals(2, response.getDebug().getHitCount());
     }
 
     private AgentToolInput chunkInput() {
