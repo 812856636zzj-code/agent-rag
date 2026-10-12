@@ -27,7 +27,7 @@ import java.util.Set;
 @Service
 public class AgentAnswerAssembler {
 
-    private static final String NO_ANSWER = "\u672a\u68c0\u7d22\u5230\u8db3\u591f\u76f8\u5173\u7684\u8d44\u6599\uff0c\u6682\u65f6\u65e0\u6cd5\u57fa\u4e8e\u77e5\u8bc6\u5e93\u56de\u7b54\u8be5\u95ee\u9898\u3002";
+    static final String NO_ANSWER = "\u672a\u68c0\u7d22\u5230\u8db3\u591f\u76f8\u5173\u7684\u8d44\u6599\uff0c\u6682\u65f6\u65e0\u6cd5\u57fa\u4e8e\u77e5\u8bc6\u5e93\u56de\u7b54\u8be5\u95ee\u9898\u3002";
 
     private final ContextBuilderService contextBuilderService;
     private final AnswerBuilderService answerBuilderService;

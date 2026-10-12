@@ -10,6 +10,7 @@ import com.example.rag.dto.LlmAnswerResult;
 import com.example.rag.dto.QueryRewriteResult;
 import com.example.rag.dto.RerankResult;
 import com.example.rag.dto.SqlTableColumnResult;
+import com.example.rag.dto.SourceItem;
 import com.example.rag.enums.ToolType;
 import com.example.rag.service.AgentTool;
 import com.example.rag.service.LlmAnswerClient;
@@ -88,6 +89,9 @@ public class AnswerGenerateTool implements AgentTool {
                                           AgentToolInput input,
                                           long start,
                                           String summary) {
+        if (!hasSupportingEvidence(response)) {
+            return abstainWithoutEvidence(result, response, input, start, summary);
+        }
         LlmAnswerResult answerResult = generateAnswer(input, response);
         if (StringUtils.hasText(answerResult.getAnswer())) {
             response.setAnswer(answerResult.getAnswer());
@@ -105,6 +109,47 @@ public class AnswerGenerateTool implements AgentTool {
         if (StringUtils.hasText(answerResult.getErrorMessage())) {
             result.setErrorMessage(answerResult.getErrorMessage());
         }
+        return result;
+    }
+
+    private boolean hasSupportingEvidence(AskResponse response) {
+        if (response == null || response.getSources() == null) {
+            return false;
+        }
+        for (SourceItem source : response.getSources()) {
+            if (source == null || source.getEvidenceSentences() == null) {
+                continue;
+            }
+            for (String sentence : source.getEvidenceSentences()) {
+                if (StringUtils.hasText(sentence)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private AgentToolResult abstainWithoutEvidence(AgentToolResult result,
+                                                   AskResponse response,
+                                                   AgentToolInput input,
+                                                   long start,
+                                                   String summary) {
+        response.setAnswer(AgentAnswerAssembler.NO_ANSWER);
+        response.setSources(new ArrayList<>());
+        response.setRelationPaths(new ArrayList<>());
+        applyRetrievalDebug(response, input);
+        if (response.getDebug() == null) {
+            response.setDebug(new AskDebugInfo());
+        }
+        response.getDebug().setAnswerProvider("EVIDENCE_GUARD");
+        response.getDebug().setAnswerLatencyMs(0L);
+        response.getDebug().setAnswerFallbackUsed(false);
+        result.setSuccess(true);
+        result.setData(response);
+        result.setSummary(summary + "; answer withheld: no supporting evidence");
+        result.setLatencyMs(System.currentTimeMillis() - start);
+        result.setAnswerProvider("EVIDENCE_GUARD");
+        result.setAnswerFallbackUsed(false);
         return result;
     }
 

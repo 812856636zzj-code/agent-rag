@@ -3,11 +3,16 @@ package com.example.rag.service.impl;
 import com.example.rag.config.AnswerGenerationProperties;
 import com.example.rag.dto.AgentToolInput;
 import com.example.rag.dto.AgentToolResult;
+import com.example.rag.dto.AskContext;
 import com.example.rag.dto.AskDebugInfo;
 import com.example.rag.dto.AskResponse;
 import com.example.rag.dto.ChunkHit;
 import com.example.rag.dto.LlmAnswerResult;
 import com.example.rag.dto.SourceItem;
+import com.example.rag.repository.DocumentChunkRepository;
+import com.example.rag.repository.DocumentRepository;
+import com.example.rag.service.AnswerBuilderService;
+import com.example.rag.service.ContextBuilderService;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -133,6 +138,46 @@ class AnswerGenerateToolTest {
         assertTrue(result.isSuccess());
         assertTrue(response.getAnswer().contains("\u672a\u68c0\u7d22\u5230\u8db3\u591f\u76f8\u5173\u7684\u8d44\u6599"));
         verifyNoInteractions(model);
+    }
+
+    @Test
+    void retrievedChunkForAnotherTableDoesNotBecomeAnAnswer() {
+        String question = "ORDERS\u8868\u6709\u54ea\u4e9b\u5b57\u6bb5\uff1f";
+        ChunkHit hit = new ChunkHit();
+        hit.setContent("USERS\u8868\u5b57\u6bb5\u5305\u62ecUSER_ID\u3001NAME\u3001AGE\u3002");
+        AgentToolInput input = new AgentToolInput();
+        input.setQuestion(question);
+        input.setChunkHits(List.of(hit));
+
+        AskContext context = new AskContext();
+        context.setTopChunks(List.of(hit));
+        context.setStructuredContext(hit.getContent());
+        ContextBuilderService contextBuilder = mock(ContextBuilderService.class);
+        when(contextBuilder.buildContext(question, "", input.getChunkHits())).thenReturn(context);
+        AnswerBuilderService answerBuilder = mock(AnswerBuilderService.class);
+        when(answerBuilder.buildAnswer(context)).thenReturn("USERS has USER_ID, NAME, and AGE fields");
+        AgentAnswerAssembler assembler = new AgentAnswerAssembler(
+                contextBuilder,
+                answerBuilder,
+                new EvidenceSelectorImpl(new SentenceSplitterImpl()),
+                mock(DocumentChunkRepository.class),
+                mock(DocumentRepository.class)
+        );
+        AnswerGenerateTool tool = new AnswerGenerateTool(
+                assembler,
+                new RuleBasedAnswerClient(),
+                new LangChain4jAnswerClient(new AnswerGenerationProperties(), new RuleBasedAnswerClient()),
+                new AnswerGenerationProperties()
+        );
+
+        AgentToolResult result = tool.execute(input);
+        AskResponse response = (AskResponse) result.getData();
+
+        assertTrue(result.isSuccess());
+        assertTrue(response.getAnswer().contains("\u672a\u68c0\u7d22\u5230\u8db3\u591f\u76f8\u5173\u7684\u8d44\u6599"));
+        assertTrue(response.getSources().isEmpty());
+        assertEquals(1, response.getMergedChunkCount());
+        assertEquals(1, response.getDebug().getHitCount());
     }
 
     private AgentToolInput chunkInput() {
