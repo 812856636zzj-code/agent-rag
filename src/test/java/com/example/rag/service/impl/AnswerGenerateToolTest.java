@@ -6,6 +6,7 @@ import com.example.rag.dto.AgentToolResult;
 import com.example.rag.dto.AskDebugInfo;
 import com.example.rag.dto.AskResponse;
 import com.example.rag.dto.ChunkHit;
+import com.example.rag.dto.LlmAnswerResult;
 import com.example.rag.dto.SourceItem;
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +18,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class AnswerGenerateToolTest {
 
@@ -77,6 +80,61 @@ class AnswerGenerateToolTest {
         assertNotNull(response.getDebug().getAnswerErrorMessage());
     }
 
+    @Test
+    void abstainsWhenChunksHaveNoSupportingEvidence() {
+        AgentAnswerAssembler assembler = mock(AgentAnswerAssembler.class);
+        AgentToolInput input = chunkInput();
+        AskResponse assembled = responseWithSource("unsupported affirmative answer");
+        assembled.getSources().get(0).setEvidenceSentences(new ArrayList<>());
+        when(assembler.buildChunkResponse(input.getQuestion(), input.getChunkHits())).thenReturn(assembled);
+
+        AnswerGenerateTool tool = new AnswerGenerateTool(
+                assembler,
+                new RuleBasedAnswerClient(),
+                new LangChain4jAnswerClient(new AnswerGenerationProperties(), new RuleBasedAnswerClient()),
+                new AnswerGenerationProperties()
+        );
+
+        AgentToolResult result = tool.execute(input);
+        AskResponse response = (AskResponse) result.getData();
+
+        assertTrue(result.isSuccess());
+        assertTrue(response.getAnswer().contains("\u672a\u68c0\u7d22\u5230\u8db3\u591f\u76f8\u5173\u7684\u8d44\u6599"));
+        assertTrue(response.getSources().isEmpty(), "Unverified sources must not be presented as citations");
+        assertEquals(1, response.getMergedChunkCount());
+        assertEquals(1, response.getDebug().getHitCount());
+        assertEquals("EVIDENCE_GUARD", result.getAnswerProvider());
+    }
+
+    @Test
+    void doesNotCallModelWhenChunksHaveNoSupportingEvidence() {
+        AgentAnswerAssembler assembler = mock(AgentAnswerAssembler.class);
+        AgentToolInput input = chunkInput();
+        AskResponse assembled = responseWithSource("unsupported affirmative answer");
+        assembled.getSources().get(0).setEvidenceSentences(new ArrayList<>());
+        when(assembler.buildChunkResponse(input.getQuestion(), input.getChunkHits())).thenReturn(assembled);
+
+        AnswerGenerationProperties properties = new AnswerGenerationProperties();
+        properties.setMode("langchain4j");
+        properties.getLangchain4j().setEnabled(true);
+        LangChain4jAnswerClient model = mock(LangChain4jAnswerClient.class);
+        LlmAnswerResult generated = new LlmAnswerResult();
+        generated.setAnswer("unsupported model answer");
+        generated.setProvider("MODEL");
+        when(model.generate(any())).thenReturn(generated);
+
+        AnswerGenerateTool tool = new AnswerGenerateTool(
+                assembler, new RuleBasedAnswerClient(), model, properties
+        );
+
+        AgentToolResult result = tool.execute(input);
+        AskResponse response = (AskResponse) result.getData();
+
+        assertTrue(result.isSuccess());
+        assertTrue(response.getAnswer().contains("\u672a\u68c0\u7d22\u5230\u8db3\u591f\u76f8\u5173\u7684\u8d44\u6599"));
+        verifyNoInteractions(model);
+    }
+
     private AgentToolInput chunkInput() {
         AgentToolInput input = new AgentToolInput();
         input.setQuestion("test question");
@@ -94,12 +152,16 @@ class AnswerGenerateToolTest {
         AskResponse response = new AskResponse();
         response.setQuestion("test question");
         response.setAnswer(answer);
-        response.setDebug(new AskDebugInfo());
+        response.setMergedChunkCount(1);
+        AskDebugInfo debug = new AskDebugInfo();
+        debug.setHitCount(1);
+        response.setDebug(debug);
         List<SourceItem> sources = new ArrayList<>();
         SourceItem source = new SourceItem();
         source.setSourceType("CHUNK");
         source.setDocumentName("doc.md");
         source.setChunkId(1L);
+        source.setEvidenceSentences(List.of("chunk evidence"));
         sources.add(source);
         response.setSources(sources);
         return response;
