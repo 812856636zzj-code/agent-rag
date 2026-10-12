@@ -89,7 +89,7 @@ public class AnswerGenerateTool implements AgentTool {
                                           AgentToolInput input,
                                           long start,
                                           String summary) {
-        if (!hasSupportingEvidence(response)) {
+        if (!retainSupportedSources(response)) {
             return abstainWithoutEvidence(result, response, input, start, summary);
         }
         LlmAnswerResult answerResult = generateAnswer(input, response);
@@ -112,21 +112,24 @@ public class AnswerGenerateTool implements AgentTool {
         return result;
     }
 
-    private boolean hasSupportingEvidence(AskResponse response) {
+    private boolean retainSupportedSources(AskResponse response) {
         if (response == null || response.getSources() == null) {
             return false;
         }
+        ArrayList<SourceItem> supportedSources = new ArrayList<>();
         for (SourceItem source : response.getSources()) {
             if (source == null || source.getEvidenceSentences() == null) {
                 continue;
             }
             for (String sentence : source.getEvidenceSentences()) {
                 if (StringUtils.hasText(sentence)) {
-                    return true;
+                    supportedSources.add(source);
+                    break;
                 }
             }
         }
-        return false;
+        response.setSources(supportedSources);
+        return !supportedSources.isEmpty();
     }
 
     private AgentToolResult abstainWithoutEvidence(AgentToolResult result,
