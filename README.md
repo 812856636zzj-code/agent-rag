@@ -138,5 +138,5 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/ask -ContentType 'appl
 - `docs/langchain4j_integration.md`: minimal LangChain4j integration notes.
 - `docs/design/memory_design.md`: agent memory design notes.
 - `docs/design/multi_agent_design.md`: multi-agent evolution design.
-- `docs/design/evidence_eval_milestones.md`: three adjacent red/green development intervals and design choices.
+- `docs/design/evidence_eval_milestones.md`: four red/green development intervals, design choices, and an explicit platform milestone qualification audit.
 - `docs/roadmap.md`: five concrete follow-up tasks with affected code areas.
