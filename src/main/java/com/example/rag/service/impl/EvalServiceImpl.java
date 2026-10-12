@@ -441,7 +441,8 @@ public class EvalServiceImpl implements EvalService {
                         && "EVIDENCE_GUARD".equals(graph.getDebug().getAnswerProvider())
         );
         boolean answered = StringUtils.hasText(answer) && !abstained;
-        boolean citationMatched = answered && hasMatchedEvidenceCitation(graph, question.getExpectedSource());
+        boolean citationMatched = answered && hasMatchedEvidenceCitation(
+                graph, question.getExpectedSource(), question.getExpectedKeywords());
         result.setAbstained(abstained);
         result.setWrongAnswer(answered && !isAnswerTextHit(answer, question.getExpectedKeywords()));
         result.setCitationMatched(citationMatched);
@@ -459,7 +460,8 @@ public class EvalServiceImpl implements EvalService {
         return ((double) hitCount / expectedKeywords.size()) >= 0.6d;
     }
 
-    private boolean hasMatchedEvidenceCitation(AskResponse response, List<String> expectedSource) {
+    private boolean hasMatchedEvidenceCitation(AskResponse response, List<String> expectedSource,
+                                               List<String> expectedKeywords) {
         if (response == null || response.getSources() == null) {
             return false;
         }
@@ -476,10 +478,15 @@ public class EvalServiceImpl implements EvalService {
             if (evidence.isEmpty()) {
                 continue;
             }
+            String evidenceText = joinStrings(evidence);
+            if (expectedKeywords != null && !expectedKeywords.isEmpty()
+                    && !containsAnyIgnoreCase(evidenceText, expectedKeywords)) {
+                continue;
+            }
             if (expectedSource == null || expectedSource.isEmpty()) {
                 return true;
             }
-            String citationText = joinStrings(listOf(source.getDocumentName(), joinStrings(evidence)));
+            String citationText = joinStrings(listOf(source.getDocumentName(), evidenceText));
             if (containsAnyIgnoreCase(citationText, expectedSource)) {
                 return true;
             }
@@ -1123,7 +1130,8 @@ public class EvalServiceImpl implements EvalService {
         sb.append("- abstainedCount: ").append(summary.getAbstainedCount()).append("\n\n");
 
         sb.append("WrongAnswer counts non-abstained graph answers that miss the fixed expected-keyword threshold. ")
-                .append("CitationMatched requires a non-empty evidence sentence tied to an expected source; ")
+                .append("CitationMatched requires an evidence sentence containing an expected answer keyword ")
+                .append("and a source name or evidence sentence tied to an expected source; ")
                 .append("these deterministic checks are review signals, not semantic fact verification.")
                 .append("\n\n");
 
