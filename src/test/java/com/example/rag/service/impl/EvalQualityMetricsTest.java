@@ -91,6 +91,18 @@ class EvalQualityMetricsTest {
         assertTrue(report.contains("| WrongAnswer | CitationMatched |"));
     }
 
+    @Test
+    void rejectsUnrelatedEvidenceEvenWhenDocumentNameMatchesExpectedSource() {
+        EvalRunResult result = evaluate(
+                question("filename-only", "ORDERS fields?"),
+                response("ORDERS has AMOUNT", "", "ORDERS.md", "ORDERS has AMOUNT", "USERS has NAME")
+        );
+
+        assertFalse(result.isWrongAnswer(), "The answer contains both expected facts");
+        assertFalse(result.isCitationMatched(), "A matching filename cannot validate unrelated evidence");
+        assertTrue(result.isCitationMissing());
+    }
+
     private EvalRunResult evaluate(EvalRunQuestion question, AskResponse graph) {
         AskResponse baseline = new AskResponse();
         baseline.setAnswer("baseline unavailable");
