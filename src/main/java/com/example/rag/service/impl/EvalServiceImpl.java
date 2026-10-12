@@ -122,6 +122,7 @@ public class EvalServiceImpl implements EvalService {
         result.setBaselineHit(isEvalAnswerHit(baseline, evalQuestion.getExpectedKeywords()));
         result.setGraphHit(isEvalAnswerHit(graph, evalQuestion.getExpectedKeywords()));
         result.setSourceHit(isEvalSourceHit(graph, evalQuestion.getExpectedSource()));
+        fillEvalQuality(result, evalQuestion, graph);
         result.setBaselineNoise(hasNoise(baseline));
         result.setGraphNoise(hasNoise(graph));
         result.setBaselineReadabilityScore(scoreReadability(baseline));
@@ -432,6 +433,60 @@ public class EvalServiceImpl implements EvalService {
         return countMatchedKeywords(buildEvalSourceText(response), expectedSource) > 0;
     }
 
+    private void fillEvalQuality(EvalRunResult result, EvalRunQuestion question, AskResponse graph) {
+        String answer = graph == null ? "" : graph.getAnswer();
+        boolean abstained = graph != null && (
+                AgentAnswerAssembler.NO_ANSWER.equals(answer)
+                        || graph.getDebug() != null
+                        && "EVIDENCE_GUARD".equals(graph.getDebug().getAnswerProvider())
+        );
+        boolean answered = StringUtils.hasText(answer) && !abstained;
+        boolean citationMatched = answered && hasMatchedEvidenceCitation(graph, question.getExpectedSource());
+        result.setAbstained(abstained);
+        result.setWrongAnswer(answered && !isAnswerTextHit(answer, question.getExpectedKeywords()));
+        result.setCitationMatched(citationMatched);
+        result.setCitationMissing(answered && !citationMatched);
+    }
+
+    private boolean isAnswerTextHit(String answer, List<String> expectedKeywords) {
+        if (expectedKeywords == null || expectedKeywords.isEmpty()) {
+            return StringUtils.hasText(answer);
+        }
+        int hitCount = countMatchedKeywords(answer, expectedKeywords);
+        if (expectedKeywords.size() <= 2) {
+            return hitCount == expectedKeywords.size();
+        }
+        return ((double) hitCount / expectedKeywords.size()) >= 0.6d;
+    }
+
+    private boolean hasMatchedEvidenceCitation(AskResponse response, List<String> expectedSource) {
+        if (response == null || response.getSources() == null) {
+            return false;
+        }
+        for (SourceItem source : response.getSources()) {
+            if (source == null || source.getEvidenceSentences() == null) {
+                continue;
+            }
+            List<String> evidence = new ArrayList<>();
+            for (String sentence : source.getEvidenceSentences()) {
+                if (StringUtils.hasText(sentence)) {
+                    evidence.add(sentence);
+                }
+            }
+            if (evidence.isEmpty()) {
+                continue;
+            }
+            if (expectedSource == null || expectedSource.isEmpty()) {
+                return true;
+            }
+            String citationText = joinStrings(listOf(source.getDocumentName(), joinStrings(evidence)));
+            if (containsAnyIgnoreCase(citationText, expectedSource)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private String buildEvalSearchText(AskResponse response) {
         if (response == null) {
             return "";
@@ -648,6 +703,10 @@ public class EvalServiceImpl implements EvalService {
         int baselineHitCount = 0;
         int graphHitCount = 0;
         int sourceHitCount = 0;
+        int wrongAnswerCount = 0;
+        int citationMatchedCount = 0;
+        int citationMissingCount = 0;
+        int abstainedCount = 0;
         for (EvalRunResult result : results) {
             if (result.isBaselineHit()) {
                 baselineHitCount++;
@@ -658,11 +717,27 @@ public class EvalServiceImpl implements EvalService {
             if (result.isSourceHit()) {
                 sourceHitCount++;
             }
+            if (result.isWrongAnswer()) {
+                wrongAnswerCount++;
+            }
+            if (result.isCitationMatched()) {
+                citationMatchedCount++;
+            }
+            if (result.isCitationMissing()) {
+                citationMissingCount++;
+            }
+            if (result.isAbstained()) {
+                abstainedCount++;
+            }
         }
         summary.setTotal(results.size());
         summary.setBaselineHitCount(baselineHitCount);
         summary.setGraphHitCount(graphHitCount);
         summary.setSourceHitCount(sourceHitCount);
+        summary.setWrongAnswerCount(wrongAnswerCount);
+        summary.setCitationMatchedCount(citationMatchedCount);
+        summary.setCitationMissingCount(citationMissingCount);
+        summary.setAbstainedCount(abstainedCount);
         summary.setBaselineHitRate(ratio(baselineHitCount, results.size()));
         summary.setGraphHitRate(ratio(graphHitCount, results.size()));
         summary.setSourceHitRate(ratio(sourceHitCount, results.size()));
@@ -1041,11 +1116,20 @@ public class EvalServiceImpl implements EvalService {
         sb.append("- graphHitRate: ").append(buildRatioText(summary.getGraphHitCount(), summary.getTotal()))
                 .append(" (").append(summary.getGraphHitCount()).append("/").append(summary.getTotal()).append(")").append("\n");
         sb.append("- sourceHitRate: ").append(buildRatioText(summary.getSourceHitCount(), summary.getTotal()))
-                .append(" (").append(summary.getSourceHitCount()).append("/").append(summary.getTotal()).append(")").append("\n\n");
+                .append(" (").append(summary.getSourceHitCount()).append("/").append(summary.getTotal()).append(")").append("\n");
+        sb.append("- wrongAnswerCount: ").append(summary.getWrongAnswerCount()).append("\n");
+        sb.append("- citationMatchedCount: ").append(summary.getCitationMatchedCount()).append("\n");
+        sb.append("- citationMissingCount: ").append(summary.getCitationMissingCount()).append("\n");
+        sb.append("- abstainedCount: ").append(summary.getAbstainedCount()).append("\n\n");
+
+        sb.append("WrongAnswer counts non-abstained graph answers that miss the fixed expected-keyword threshold. ")
+                .append("CitationMatched requires a non-empty evidence sentence tied to an expected source; ")
+                .append("these deterministic checks are review signals, not semantic fact verification.")
+                .append("\n\n");
 
         sb.append("## Baseline Vs Graph").append("\n\n");
-        sb.append("| ID | Type | Question | BaselineHit | GraphHit | SourceHit | BaselineReadability | GraphReadability | Noise | Notes |").append("\n");
-        sb.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |").append("\n");
+        sb.append("| ID | Type | Question | BaselineHit | GraphHit | SourceHit | WrongAnswer | CitationMatched | CitationMissing | Abstained | BaselineReadability | GraphReadability | Noise | Notes |").append("\n");
+        sb.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |").append("\n");
         for (EvalRunResult result : results) {
             sb.append("| ")
                     .append(md(result.getId())).append(" | ")
@@ -1054,6 +1138,10 @@ public class EvalServiceImpl implements EvalService {
                     .append(result.isBaselineHit() ? "Y" : "N").append(" | ")
                     .append(result.isGraphHit() ? "Y" : "N").append(" | ")
                     .append(result.isSourceHit() ? "Y" : "N").append(" | ")
+                    .append(result.isWrongAnswer() ? "Y" : "N").append(" | ")
+                    .append(result.isCitationMatched() ? "Y" : "N").append(" | ")
+                    .append(result.isCitationMissing() ? "Y" : "N").append(" | ")
+                    .append(result.isAbstained() ? "Y" : "N").append(" | ")
                     .append(result.getBaselineReadabilityScore()).append(" | ")
                     .append(result.getGraphReadabilityScore()).append(" | ")
                     .append(md(buildEvalNoiseText(result))).append(" | ")

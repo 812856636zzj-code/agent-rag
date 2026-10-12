@@ -9,6 +9,10 @@ public class EvalRunSummary {
     private int baselineHitCount;
     private int graphHitCount;
     private int sourceHitCount;
+    private int wrongAnswerCount;
+    private int citationMatchedCount;
+    private int citationMissingCount;
+    private int abstainedCount;
     private double baselineHitRate;
     private double graphHitRate;
     private double sourceHitRate;
@@ -94,5 +98,37 @@ public class EvalRunSummary {
 
     public void setResults(List<EvalRunResult> results) {
         this.results = results;
+    }
+
+    public int getWrongAnswerCount() {
+        return wrongAnswerCount;
+    }
+
+    public void setWrongAnswerCount(int wrongAnswerCount) {
+        this.wrongAnswerCount = wrongAnswerCount;
+    }
+
+    public int getCitationMatchedCount() {
+        return citationMatchedCount;
+    }
+
+    public void setCitationMatchedCount(int citationMatchedCount) {
+        this.citationMatchedCount = citationMatchedCount;
+    }
+
+    public int getCitationMissingCount() {
+        return citationMissingCount;
+    }
+
+    public void setCitationMissingCount(int citationMissingCount) {
+        this.citationMissingCount = citationMissingCount;
+    }
+
+    public int getAbstainedCount() {
+        return abstainedCount;
+    }
+
+    public void setAbstainedCount(int abstainedCount) {
+        this.abstainedCount = abstainedCount;
     }
 }

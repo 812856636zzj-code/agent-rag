@@ -17,6 +17,10 @@ public class EvalRunResult {
     private boolean baselineHit;
     private boolean graphHit;
     private boolean sourceHit;
+    private boolean wrongAnswer;
+    private boolean citationMatched;
+    private boolean citationMissing;
+    private boolean abstained;
     private boolean sourceMatched;
     private boolean baselineNoise;
     private boolean graphNoise;
@@ -463,5 +467,37 @@ public class EvalRunResult {
 
     public void setNotes(String notes) {
         this.notes = notes;
+    }
+
+    public boolean isWrongAnswer() {
+        return wrongAnswer;
+    }
+
+    public void setWrongAnswer(boolean wrongAnswer) {
+        this.wrongAnswer = wrongAnswer;
+    }
+
+    public boolean isCitationMatched() {
+        return citationMatched;
+    }
+
+    public void setCitationMatched(boolean citationMatched) {
+        this.citationMatched = citationMatched;
+    }
+
+    public boolean isCitationMissing() {
+        return citationMissing;
+    }
+
+    public void setCitationMissing(boolean citationMissing) {
+        this.citationMissing = citationMissing;
+    }
+
+    public boolean isAbstained() {
+        return abstained;
+    }
+
+    public void setAbstained(boolean abstained) {
+        this.abstained = abstained;
     }
 }
