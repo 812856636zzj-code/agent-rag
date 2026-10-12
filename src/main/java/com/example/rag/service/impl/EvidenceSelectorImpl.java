@@ -41,9 +41,15 @@ public class EvidenceSelectorImpl implements EvidenceSelector {
         LinkedHashSet<String> selected = new LinkedHashSet<>();
         boolean tableFieldQuestion = isTableFieldQuestion(question);
         Set<String> queryTokens = extractQueryTokens(question);
+        Set<String> requiredIdentifiers = tableFieldQuestion
+                ? extractExplicitIdentifiers(question)
+                : new LinkedHashSet<>();
 
         for (String sentence : sentences) {
             if (tableFieldQuestion && shouldSkipSortSentence(sentence)) {
+                continue;
+            }
+            if (!requiredIdentifiers.isEmpty() && !containsAnyIdentifier(sentence, requiredIdentifiers)) {
                 continue;
             }
             int score = scoreSentence(question, sentence, queryTokens, tableFieldQuestion);
@@ -52,7 +58,7 @@ public class EvidenceSelectorImpl implements EvidenceSelector {
             }
         }
 
-        if (selected.isEmpty()) {
+        if (selected.isEmpty() && requiredIdentifiers.isEmpty()) {
             for (String sentence : sentences) {
                 if (tableFieldQuestion && shouldSkipSortSentence(sentence)) {
                     continue;
@@ -139,6 +145,28 @@ public class EvidenceSelectorImpl implements EvidenceSelector {
             }
         }
         return tokens;
+    }
+
+    private Set<String> extractExplicitIdentifiers(String question) {
+        LinkedHashSet<String> identifiers = new LinkedHashSet<>();
+        if (!StringUtils.hasText(question)) {
+            return identifiers;
+        }
+        for (String token : question.split("[^A-Za-z0-9_]+")) {
+            if (token.matches("[A-Z][A-Z0-9_]{2,}")) {
+                identifiers.add(token);
+            }
+        }
+        return identifiers;
+    }
+
+    private boolean containsAnyIdentifier(String sentence, Set<String> requiredIdentifiers) {
+        for (String token : sentence.split("[^A-Za-z0-9_]+")) {
+            if (requiredIdentifiers.contains(token.toUpperCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean containsAny(String text, String... tokens) {
