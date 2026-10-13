@@ -6,6 +6,7 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE
 @day3_entity_tables.sql
 @day5_entity_relations.sql
 @create_rag_agent_memories.sql
+@create_eval_history_tables.sql
 @seed_fixed_eval.sql
 COMMIT;
 EXIT SUCCESS

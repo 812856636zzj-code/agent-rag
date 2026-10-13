@@ -5,6 +5,7 @@ import java.util.List;
 
 public class EvalRunSummary {
 
+    private Long runId;
     private int total;
     private int baselineHitCount;
     private int graphHitCount;
@@ -19,6 +20,14 @@ public class EvalRunSummary {
     private String resultsPath;
     private String reportPath;
     private List<EvalRunResult> results = new ArrayList<>();
+
+    public Long getRunId() {
+        return runId;
+    }
+
+    public void setRunId(Long runId) {
+        this.runId = runId;
+    }
 
     public int getTotal() {
         return total;

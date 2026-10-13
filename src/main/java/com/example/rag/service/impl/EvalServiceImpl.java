@@ -67,32 +67,50 @@ public class EvalServiceImpl implements EvalService {
     private final AgentExecutor agentExecutor;
     private final MemoryService memoryService;
     private final ObjectMapper objectMapper;
+    private final EvalQuestionSetLoader questionSetLoader;
+    private final EvalHistoryService evalHistoryService;
 
     public EvalServiceImpl(AskService askService,
                            QuestionClassifier questionClassifier,
                            AgentRouterService agentRouterService,
                            AgentExecutor agentExecutor,
                            MemoryService memoryService,
-                           ObjectMapper objectMapper) {
+                           ObjectMapper objectMapper,
+                           EvalQuestionSetLoader questionSetLoader,
+                           EvalHistoryService evalHistoryService) {
         this.askService = askService;
         this.questionClassifier = questionClassifier;
         this.agentRouterService = agentRouterService;
         this.agentExecutor = agentExecutor;
         this.memoryService = memoryService;
         this.objectMapper = objectMapper;
+        this.questionSetLoader = questionSetLoader;
+        this.evalHistoryService = evalHistoryService;
     }
 
     @Override
     public EvalRunSummary runEval() {
-        List<EvalRunQuestion> questions = loadEvalRunQuestions();
-        List<EvalRunResult> results = new ArrayList<>();
-        for (EvalRunQuestion question : questions) {
-            results.add(runEvalQuestion(question));
+        EvalQuestionSet questionSet = questionSetLoader.load(LATEST_EVAL_QUESTIONS_PATH);
+        long runId = evalHistoryService.begin(questionSet.sha256(), questionSet.questions().size());
+        try {
+            List<EvalRunResult> results = new ArrayList<>();
+            for (EvalRunQuestion question : questionSet.questions()) {
+                results.add(runEvalQuestion(question));
+            }
+            EvalRunSummary summary = buildEvalRunSummary(results);
+            summary.setRunId(runId);
+            writeEvalRunResults(results);
+            writeEvalRunReport(summary);
+            evalHistoryService.complete(runId, summary);
+            return summary;
+        } catch (RuntimeException ex) {
+            try {
+                evalHistoryService.fail(runId, ex);
+            } catch (RuntimeException recordFailure) {
+                log.warn("could not record failure of fixed-eval run {}", runId, recordFailure);
+            }
+            throw ex;
         }
-        EvalRunSummary summary = buildEvalRunSummary(results);
-        writeEvalRunResults(results);
-        writeEvalRunReport(summary);
-        return summary;
     }
 
     @Override
@@ -249,18 +267,6 @@ public class EvalServiceImpl implements EvalService {
             });
         } catch (IOException ex) {
             throw new IllegalStateException("load day7 eval questions failed", ex);
-        }
-    }
-
-    private List<EvalRunQuestion> loadEvalRunQuestions() {
-        if (!Files.exists(LATEST_EVAL_QUESTIONS_PATH)) {
-            throw new IllegalStateException("eval questions file not found: " + LATEST_EVAL_QUESTIONS_PATH.toAbsolutePath());
-        }
-        try (InputStream inputStream = Files.newInputStream(LATEST_EVAL_QUESTIONS_PATH)) {
-            return objectMapper.readValue(inputStream, new TypeReference<List<EvalRunQuestion>>() {
-            });
-        } catch (IOException ex) {
-            throw new IllegalStateException("load eval questions failed", ex);
         }
     }
 
@@ -1128,6 +1134,9 @@ public class EvalServiceImpl implements EvalService {
         StringBuilder sb = new StringBuilder();
         sb.append("# Latest RAG Eval Report").append("\n\n");
         sb.append("## Summary").append("\n\n");
+        if (summary.getRunId() != null) {
+            sb.append("- runId: ").append(summary.getRunId()).append("\n");
+        }
         sb.append("- total: ").append(summary.getTotal()).append("\n");
         sb.append("- baselineHitRate: ").append(buildRatioText(summary.getBaselineHitCount(), summary.getTotal()))
                 .append(" (").append(summary.getBaselineHitCount()).append("/").append(summary.getTotal()).append(")").append("\n");

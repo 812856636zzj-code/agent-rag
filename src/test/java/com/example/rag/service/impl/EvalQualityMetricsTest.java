@@ -34,7 +34,9 @@ class EvalQualityMetricsTest {
             mock(AgentRouterService.class),
             mock(AgentExecutor.class),
             mock(MemoryService.class),
-            objectMapper
+            objectMapper,
+            mock(EvalQuestionSetLoader.class),
+            mock(EvalHistoryService.class)
     );
 
     @Test
