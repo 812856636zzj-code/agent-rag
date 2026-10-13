@@ -25,6 +25,7 @@ Expose read-only history endpoints:
 | `GET /eval/runs/{id}` | Completed run summary and status; unknown ID is 404. |
 | `GET /eval/runs/{id}/cases?limit=20&after=POSITION` | Ordered case snapshots with bounded pagination. |
 | `GET /eval/compare?base=ID&candidate=ID` | Per-case improvement/regression flags and aggregate deltas; dataset mismatch is 409. |
+| `GET /eval/gate?base=ID&candidate=ID` | Apply explicit regression budgets to the stored comparison; return a CI-readable decision and affected case IDs. |
 
 The comparator examines the stored answer and source signals, not a rerun against current data. Missing or duplicate case identifiers in either snapshot are rejected. It separates new graph hits from lost graph hits, newly wrong answers, fixed wrong answers, newly missing citations, fixed citations, and new/recovered abstentions. A comparison of two identical runs has no directional changes, but the API does not assume repeat executions will be identical.
 
@@ -49,7 +50,18 @@ The first test commit `a6d90f2` calls the live endpoint and fails because the re
 1. Oracle schema validation and a real 15-case `/eval/run` with an isolated output directory.
 2. Fetching the run and all ordered cases after completion.
 3. Comparing two runs using stored snapshots, including deterministic unit cases for improvements, regressions, citation loss, and abstention transitions.
-4. Invalid IDs, dataset mismatch, pagination limits, and failed-run behavior.
+4. Invalid IDs, dataset mismatch, pagination limits, immutable snapshots, and failed-run behavior.
 5. The full offline Maven build with the opt-in Oracle test skipped by default.
 
 The milestone size will be counted from its actual start and end commits after implementation. No code or test files will be added solely to meet the platform's line threshold.
+
+## Verified implementation
+
+- Red: `a6d90f2` added the live `/eval/run` assertion for a persisted ID. The Oracle-backed test had one failure because the old response had no `runId`.
+- Green: `df92b0b` added the tables, persistence, pagination, and comparator. The focused Oracle test passed 1/1, deterministic comparator and loader tests passed 5/5, and `mvn -o -B clean verify` passed 18 ordinary tests with two opt-in Oracle tests skipped.
+- Boundary follow-up: the same Oracle test now checks both cursor types, snapshot immutability, 400/404/409 responses, failed runs, and dataset mismatch. It passed 2/2 against the migrated test schema.
+- Fresh schema: a separate `RAG_EVAL_HISTORY_20261013` user had zero tables before the unchanged `sql/bootstrap_oracle.sql`. Bootstrap exited 0 with no ORA errors and produced nine tables plus one seed chunk. The old `LocalEvalEndToEndTest` and new history test then passed 3/3 against this fresh schema. The test schema is local and contains no production data.
+- Gate red: `8f7535a` required `/eval/gate` from the real endpoint; the test failed 1/1 with `expected 200 OK but was 404 NOT_FOUND`.
+- Gate green: `5df796d` computes a strict or explicitly relaxed budget from stored comparison data without rerunning answers. The Oracle-backed history test passed 2/2 and four deterministic gate tests passed 4/4.
+
+The database snapshots are the historical record. The two `latest_*` files are compatibility outputs and may be partially updated if a later filesystem write fails; a future change should stage and publish the pair together. This limitation does not alter stored completed snapshots.

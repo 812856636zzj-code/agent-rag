@@ -60,6 +60,11 @@ The tuning path is documented in `docs/eval/rag_tuning_summary.md`. To produce c
 | `GET /entities/recent` | Inspect extracted entities. |
 | `GET /relations/by-entity` | Inspect relation evidence. |
 | `POST /eval/run` | Run fixed RAG eval and regenerate latest reports. |
+| `GET /eval/runs?limit=20&before=ID` | Browse stored runs, newest first. |
+| `GET /eval/runs/{id}` | Inspect a run's status, dataset digest, and counters. |
+| `GET /eval/runs/{id}/cases?limit=20&after=POSITION` | Page through immutable case snapshots. |
+| `GET /eval/compare?base=ID&candidate=ID` | Compare two completed runs of the same question set. |
+| `GET /eval/gate?base=ID&candidate=ID` | Decide whether a candidate exceeds a regression budget. |
 
 ## LangChain4j Integration
 
@@ -102,7 +107,7 @@ sqlplus -L RAG_APP@//localhost:1521/FREEPDB1 @bootstrap_oracle.sql
 cd ..
 ```
 
-`bootstrap_oracle.sql` creates seven tables, their sequences and indexes, and one `KNOWLEDGE` document with one chunk for fixed eval. It is for an **empty schema** and deliberately fails on existing objects. It never drops tables. To upgrade an existing schema, review and apply targeted migrations instead. In particular, `RAG_ENTITY_RELATIONS.CONFIDENCE` is now present and both confidence columns use Oracle `NUMBER(10,4)`.
+`bootstrap_oracle.sql` creates nine tables, their sequences and indexes, and one `KNOWLEDGE` document with one chunk for fixed eval. The last two tables retain fixed-eval runs and ordered case snapshots. It is for an **empty schema** and deliberately fails on existing objects. It never drops tables. To upgrade a schema that already has the original seven tables, apply the additive `sql/create_eval_history_tables.sql` once as the application user. In particular, `RAG_ENTITY_RELATIONS.CONFIDENCE` is present and both confidence columns use Oracle `NUMBER(10,4)`.
 
 Set the database connection for a local run:
 
@@ -128,7 +133,11 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/eval/run
 
 The endpoint reads `docs/eval/questions.json` and writes `latest_eval_results.json` plus `latest_eval_report.md` to `docs/eval/` by default. Set `rag.eval.output-dir` to use another directory, as the integration test does to protect checked-in historical reports. Its new per-question fields are `wrongAnswer`, `citationMatched`, `citationMissing`, and `abstained`; the summary/report include their counts. The wrong-answer flag checks expected keywords in the answer itself. The citation flag requires an evidence sentence with an expected answer keyword and an expected source token in either the source name or evidence. These are deterministic review signals, not semantic proof.
 
-To repeat the real Oracle-backed endpoint test in a dedicated schema prepared by the bootstrap, set `RAG_E2E_ENABLED=true` along with the three `RAG_DB_*` variables, then run `mvn -B -Dtest=LocalEvalEndToEndTest test`. Without the opt-in variable, normal builds skip this database test. The test calls `POST /eval/run`, checks seeded `EVAL-005`, and compares response counts with its isolated JSON report. See `docs/design/evidence_eval_milestones.md` for the red/green record.
+Each successful response also contains `runId`. The run and every case are stored in Oracle; later evals cannot replace them. For example, `GET /eval/runs?limit=10` returns recent run IDs, `GET /eval/runs/42/cases?limit=20` returns ordered case snapshots, and `GET /eval/compare?base=41&candidate=42` reports per-case hit, wrong-answer, citation, and abstention changes. Follow `nextBefore` or `nextAfter` for another page. The comparison requires both runs to be complete and to have the same SHA-256 digest of `docs/eval/questions.json`; a mismatch returns HTTP 409. The latest files remain compatibility outputs; the database records are the historical source of truth.
+
+For a deterministic CI decision, call `GET /eval/gate?base=41&candidate=42`. Its default budgets allow zero graph regressions, newly wrong answers, lost citations, and new abstentions. Add nonnegative `maxGraphRegressions`, `maxNewWrongAnswers`, `maxCitationsLost`, or `maxNewAbstentions` query parameters to tolerate known changes. The response returns `passed`, the chosen policy, observed comparison, and violations with case IDs. An incompatible or incomplete pair returns HTTP 409. CI should inspect `passed`; HTTP 200 means the comparison ran, not that the candidate passed.
+
+To repeat the real Oracle-backed endpoint tests in a dedicated schema prepared by the bootstrap, set `RAG_E2E_ENABLED=true` along with the three `RAG_DB_*` variables, then run `mvn -B '-Dtest=LocalEvalEndToEndTest,EvalHistoryEndToEndTest' test`. Without the opt-in variable, normal builds skip these database tests. They call `POST /eval/run`, check seeded `EVAL-005`, verify persisted history and pagination, and reject invalid or incompatible comparisons. See `docs/design/evidence_eval_milestones.md` for the red/green record.
 
 An optional model-backed answer mode is documented in `docs/langchain4j_integration.md`; rule mode needs no model API key.
 
@@ -149,4 +158,5 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/ask -ContentType 'appl
 - `docs/design/memory_design.md`: agent memory design notes.
 - `docs/design/multi_agent_design.md`: multi-agent evolution design.
 - `docs/design/evidence_eval_milestones.md`: five red/green development intervals, design choices, and an explicit platform milestone qualification audit.
+- `docs/design/eval_history_rfc.md`: persistent fixed-eval history and regression comparison design.
 - `docs/roadmap.md`: five concrete follow-up tasks with affected code areas.
