@@ -2,7 +2,7 @@
 
 This document records the problem, choice, implementation, and verification behind the evidence work and the later Oracle bootstrap interval. The layout follows the decision trail illustrated by the [PaddlePaddle API design RFC](https://github.com/PaddlePaddle/community/blob/master/rfcs/APIs/20250116_api_design_for_baddbmm.md); that RFC is a writing reference, not this project's acceptance test.
 
-**Qualification audit:** these are genuine red/green development checkpoints, but none currently meets the supplied platform threshold of more than 10 changed code files and more than 2,000 changed code lines in one interval. Do not submit them as qualifying milestones or split their test and implementation commits into separate milestones. Counts below use changed `.java` and `.yml` files and added plus deleted lines; documentation and generated files are excluded. For interval 5, counting four SQL files and `pom.xml` as code/config as well gives 11 files and 207 changed lines, still far below 2,000 lines.
+**Qualification audit:** these are genuine red/green development checkpoints, but none currently meets the supplied platform threshold of more than 10 changed code files and more than 2,000 changed code lines in one interval. Do not submit them as qualifying milestones or split their test and implementation commits into separate milestones. Counts below use changed `.java` and `.yml` files and added plus deleted lines; documentation and generated files are excluded. For interval 5, counting four SQL files and `pom.xml` as code/config as well gives 11 files and 207 changed lines, still far below 2,000 lines. Interval 6 counts its additive SQL migration alongside Java files.
 
 | Interval | Changed code files | Changed code lines | Meets size threshold? |
 | --- | ---: | ---: | --- |
@@ -11,6 +11,7 @@ This document records the problem, choice, implementation, and verification behi
 | 3 | 5 | 316 | No |
 | 4 | 2 | 60 | No |
 | 5 | 6 | 142 | No |
+| 6 | 28 | 1,410 | No |
 
 The external behavior and tests described below are real. A future qualifying milestone needs a coherent requirement whose implementation naturally spans the required scope, with a failing assertion at its start and a passing assertion at its end; commit count alone does not establish that.
 
@@ -85,3 +86,13 @@ The previous four intervals did not exercise a live Oracle database. Interval 5 
 - Scope and size: from start to end, the `.java`/`.yml` diff covers 6 files and 142 changed lines. Including SQL and `pom.xml` gives 11 code/config files and 207 changed lines. The functional requirement is complete, but this interval fails the platform's >2,000-line milestone condition. Inflating the diff solely to meet that condition would not be a real engineering change.
 
 History note: commit IDs above were remapped during credential redaction. The commit topology and code changes were preserved; the old IDs must not be used for new milestone submissions.
+
+## Development interval 6: durable fixed-eval history and regression gate
+
+- Start: `40401ed` (sanitized baseline, before the new requirement). End: `a397d33`. These are adjacent boundaries for this interval; it is **not** presented as directly adjacent to interval 5 because credential cleanup and prior documentation sit between them.
+- Requirement: preserve completed fixed-eval case snapshots in Oracle, browse historical runs, compare equivalent question sets, and apply explicit CI regression budgets without rerunning the answer pipeline. The latest report files remain compatibility outputs.
+- First red: `a6d90f2` introduced a real Oracle-backed endpoint test. It failed 1/1 because `/eval/run` returned no persisted `runId`. Green: `df92b0b` added two tables, a fixed-question digest, run/case persistence, pagination, and comparison. The focused Oracle test passed 1/1, comparator/loader tests passed 5/5, and offline `clean verify` passed 18 ordinary tests with two opt-in Oracle tests skipped.
+- Boundary checks: `e15b03d` extended the live test for immutable case snapshots, run and case cursors, failed status, and HTTP 400/404/409 behavior. It passed 2/2 against the migrated Oracle schema.
+- Second red: `8f7535a` required a `/eval/gate` decision from the real endpoint and failed 1/1 with 404. Green: `5df796d` added a strict-by-default, explicitly relaxable budget for graph regressions, newly wrong answers, lost citations, and new abstentions. The endpoint test passed 2/2 and the deterministic gate tests passed 4/4.
+- Fresh-start verification: a separate local `RAG_EVAL_HISTORY_20261013` schema contained zero tables before the unchanged `sql/bootstrap_oracle.sql`. Bootstrap exited 0 without ORA errors and produced nine tables and one seed chunk. `mvn -o -B '-Dtest=LocalEvalEndToEndTest,EvalHistoryEndToEndTest' test` passed 3/3 against that fresh schema. The final offline `clean verify` built the JAR and passed all ordinary tests; opt-in database tests were skipped by default.
+- Scope and eligibility: `git diff --numstat 40401ed a397d33 -- '*.java' '*.sql' '*.yml'` yields 28 changed code/SQL files and 1,410 added plus deleted lines. The external behavior and red/green tests are real, but this falls **590 lines below** a 2,000-line cutoff (and even further below a strict “more than 2,000” condition). Do not claim this interval meets the platform size threshold. The existing report file pair can still be partially updated if the second filesystem write fails, and an abruptly terminated process can leave a RUNNING row; both are listed as concrete follow-ups in `docs/roadmap.md`.
