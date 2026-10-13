@@ -1,5 +1,7 @@
 package com.example.rag.service.impl;
 
+import com.example.rag.dto.EvalRunResult;
+import com.example.rag.dto.EvalRunSummary;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -17,7 +19,11 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.http.HttpStatus.OK;
+import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
+import static org.springframework.http.HttpStatus.NOT_FOUND;
 
 @EnabledIfEnvironmentVariable(named = "RAG_E2E_ENABLED", matches = "true")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -28,6 +34,9 @@ class EvalHistoryEndToEndTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @Autowired
+    private EvalHistoryService historyService;
 
     @DynamicPropertySource
     static void outputDirectory(DynamicPropertyRegistry registry) {
@@ -69,6 +78,71 @@ class EvalHistoryEndToEndTest {
         assertEquals(secondId, comparison.getBody().path("candidateRunId").asLong());
         assertEquals(15, comparison.getBody().path("caseCount").asInt());
         assertEquals(15, comparison.getBody().path("cases").size());
+
+        ResponseEntity<JsonNode> page = restTemplate.getForEntity("/eval/runs?limit=1", JsonNode.class);
+        assertEquals(OK, page.getStatusCode());
+        assertEquals(secondId, page.getBody().path("items").get(0).path("runId").asLong());
+        assertEquals(secondId, page.getBody().path("nextBefore").asLong());
+        ResponseEntity<JsonNode> older = restTemplate.getForEntity(
+                "/eval/runs?limit=1&before=" + secondId, JsonNode.class);
+        assertEquals(OK, older.getStatusCode());
+        assertEquals(firstId, older.getBody().path("items").get(0).path("runId").asLong());
+
+        ResponseEntity<JsonNode> firstCasePage = restTemplate.getForEntity(
+                "/eval/runs/" + firstId + "/cases?limit=1", JsonNode.class);
+        assertEquals(OK, firstCasePage.getStatusCode());
+        assertEquals(0, firstCasePage.getBody().path("nextAfter").asInt());
+        ResponseEntity<JsonNode> secondCasePage = restTemplate.getForEntity(
+                "/eval/runs/" + firstId + "/cases?limit=1&after=0", JsonNode.class);
+        assertEquals(OK, secondCasePage.getStatusCode());
+        assertEquals("EVAL-002", secondCasePage.getBody().path("items").get(0).path("caseId").asText());
+
+        ResponseEntity<JsonNode> originalAfterSecondRun = restTemplate.getForEntity(
+                "/eval/runs/" + firstId + "/cases?limit=20", JsonNode.class);
+        assertEquals(cases.getBody(), originalAfterSecondRun.getBody(),
+                "a later run must not rewrite earlier case snapshots");
+    }
+
+    @Test
+    void historyRejectsInvalidRequestsAndIncompleteComparisons() {
+        assertEquals(BAD_REQUEST, restTemplate.getForEntity("/eval/runs?limit=0", JsonNode.class).getStatusCode());
+        assertEquals(BAD_REQUEST, restTemplate.getForEntity("/eval/runs?before=-1", JsonNode.class).getStatusCode());
+        assertEquals(BAD_REQUEST, restTemplate.getForEntity("/eval/runs/-1", JsonNode.class).getStatusCode());
+        assertEquals(NOT_FOUND, restTemplate.getForEntity("/eval/runs/999999999", JsonNode.class).getStatusCode());
+
+        long failedId = historyService.begin("a".repeat(64), 1);
+        historyService.fail(failedId, new IllegalStateException("private details should not leak"));
+        ResponseEntity<JsonNode> failed = restTemplate.getForEntity("/eval/runs/" + failedId, JsonNode.class);
+        assertEquals(OK, failed.getStatusCode());
+        assertEquals("FAILED", failed.getBody().path("status").asText());
+        assertEquals("Evaluation failed: IllegalStateException", failed.getBody().path("errorMessage").asText());
+        assertEquals(CONFLICT, restTemplate.getForEntity(
+                "/eval/runs/" + failedId + "/cases", JsonNode.class).getStatusCode());
+        assertEquals(CONFLICT, restTemplate.getForEntity(
+                "/eval/compare?base=" + failedId + "&candidate=" + failedId,
+                JsonNode.class).getStatusCode());
+
+        long otherId = historyService.begin("b".repeat(64), 1);
+        EvalRunResult caseResult = new EvalRunResult();
+        caseResult.setId("ONE-CASE");
+        EvalRunSummary summary = new EvalRunSummary();
+        summary.setRunId(otherId);
+        summary.setTotal(1);
+        summary.setResults(java.util.List.of(caseResult));
+        historyService.complete(otherId, summary);
+        assertThrows(IllegalStateException.class, () -> historyService.complete(otherId, summary),
+                "completed runs must not accept replacement snapshots");
+        long mismatchedId = historyService.begin("c".repeat(64), 1);
+        EvalRunSummary mismatched = new EvalRunSummary();
+        mismatched.setRunId(mismatchedId);
+        mismatched.setTotal(1);
+        mismatched.setResults(java.util.List.of(caseResult));
+        historyService.complete(mismatchedId, mismatched);
+        assertEquals(CONFLICT, restTemplate.getForEntity(
+                "/eval/compare?base=" + otherId + "&candidate=" + mismatchedId,
+                JsonNode.class).getStatusCode());
+        assertEquals(BAD_REQUEST, restTemplate.getForEntity(
+                "/eval/runs/" + otherId + "/cases?limit=101", JsonNode.class).getStatusCode());
     }
 
     private static Path createOutputDirectory() {
