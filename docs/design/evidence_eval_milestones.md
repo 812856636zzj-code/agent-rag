@@ -1,8 +1,8 @@
 # Evidence-grounded answer milestones
 
-This document records the problem, choice, implementation, and verification behind four adjacent development intervals. The layout follows the decision trail illustrated by the [PaddlePaddle API design RFC](https://github.com/PaddlePaddle/community/blob/master/rfcs/APIs/20250116_api_design_for_baddbmm.md); that RFC is a writing reference, not this project's acceptance test.
+This document records the problem, choice, implementation, and verification behind the evidence work and the later Oracle bootstrap interval. The layout follows the decision trail illustrated by the [PaddlePaddle API design RFC](https://github.com/PaddlePaddle/community/blob/master/rfcs/APIs/20250116_api_design_for_baddbmm.md); that RFC is a writing reference, not this project's acceptance test.
 
-**Qualification audit:** these are genuine red/green development checkpoints, but none currently meets the supplied platform threshold of more than 10 changed code files and more than 2,000 changed code lines in one interval. Do not submit them as qualifying milestones or split their test and implementation commits into separate milestones. Counts below use changed `.java` and `.yml` files and added plus deleted lines; documentation and generated files are excluded.
+**Qualification audit:** these are genuine red/green development checkpoints, but none currently meets the supplied platform threshold of more than 10 changed code files and more than 2,000 changed code lines in one interval. Do not submit them as qualifying milestones or split their test and implementation commits into separate milestones. Counts below use changed `.java` and `.yml` files and added plus deleted lines; documentation and generated files are excluded. For interval 5, counting four SQL files and `pom.xml` as code/config as well gives 11 files and 207 changed lines, still far below 2,000 lines.
 
 | Interval | Changed code files | Changed code lines | Meets size threshold? |
 | --- | ---: | ---: | --- |
@@ -10,6 +10,7 @@ This document records the problem, choice, implementation, and verification behi
 | 2 | 3 | 156 | No |
 | 3 | 5 | 316 | No |
 | 4 | 2 | 60 | No |
+| 5 | 6 | 142 | No |
 
 The external behavior and tests described below are real. A future qualifying milestone needs a coherent requirement whose implementation naturally spans the required scope, with a failing assertion at its start and a passing assertion at its end; commit count alone does not establish that.
 
@@ -71,4 +72,14 @@ The RAG pipeline could select a `USERS` field sentence as evidence for an `ORDER
 
 All commands above used JDK 17 and Maven with a populated local dependency cache. A fresh offline cache initially failed because Spring Boot's parent POM was absent; one online `mvn -B clean verify` fetched dependencies, after which offline builds succeeded. This does not establish that a clean air-gapped machine can build immediately.
 
-The fixed `/eval/run` endpoint has not been run against a live Oracle database for these changes. Existing `docs/eval/latest_eval_results.json` and `docs/eval/latest_eval_report.md` are historical snapshots. Running `/eval/run` with a prepared database and fixed dataset will regenerate them; until then, new count values are not claimed.
+The previous four intervals did not exercise a live Oracle database. Interval 5 below adds that coverage; checked-in `docs/eval/latest_eval_results.json` and `docs/eval/latest_eval_report.md` remain historical snapshots because the live test writes into its own temporary directory.
+
+## Development interval 5: empty Oracle schema to fixed eval
+
+- Start: `14e50cf` (the user-specified state). This follows documentation commits after interval 4, so it is recorded as a separate development interval rather than presented as an adjacent qualifying platform milestone.
+- End: `46ade71`.
+- Requirement: create all persistence objects and minimal first-party knowledge in a fresh Oracle schema, start the app with schema validation, call `POST /eval/run`, and verify the fixed results and report without overwriting historical artifacts.
+- Failing test commit: `83ddb1f`, `LocalEvalEndToEndTest`. The initial connection attempt exposed an Oracle 26ai / JDBC 19.3 compatibility failure (`ORA-01017`). Driver fix `fd767ca` switched to `ojdbc11:23.26.1.0.0`; rerunning the still-failing test against an empty dedicated schema then failed at startup with `Schema-validation: missing table [rag_agent_memories]`. This is the schema red state, saved locally as `agent-rag-e2e-schema-red.log` in the temp directory.
+- Implementation: `46ade71` adds `sql/bootstrap_oracle.sql`, three base tables, existing entity/relation/memory scripts in dependency order, one `KNOWLEDGE` document and chunk, the missing relation `CONFIDENCE` column, Oracle `NUMBER` conversion for Java `Double`, configurable report output, and validated startup defaults. The test was strengthened to require seeded `EVAL-005` to answer and summary counters to equal JSON result counts.
+- Verification: a second, newly created `RAG_EVAL_BOOTSTRAP` schema had 0 tables before bootstrap; the unmodified bootstrap created 7 tables and 1 chunk. `mvn -o -B -Dtest=LocalEvalEndToEndTest test` then passed 1/1 with real Oracle Free 26ai, a random Spring Boot port, and a live `POST /eval/run`. The generated report showed total 15, baseline hits 0, graph hits 2, source hits 2, wrong answers 0, citation matches 1, citation misses 1, and abstentions 13. These values reflect only this small seed; they are not a quality target. `mvn -o -B clean verify` passed 13 ordinary tests, skipped the opt-in Oracle test, and built the JAR.
+- Scope and size: from start to end, the `.java`/`.yml` diff covers 6 files and 142 changed lines. Including SQL and `pom.xml` gives 11 code/config files and 207 changed lines. The functional requirement is complete, but this interval fails the platform's >2,000-line milestone condition. Inflating the diff solely to meet that condition would not be a real engineering change.
