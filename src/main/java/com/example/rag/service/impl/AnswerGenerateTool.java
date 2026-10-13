@@ -10,7 +10,6 @@ import com.example.rag.dto.LlmAnswerResult;
 import com.example.rag.dto.QueryRewriteResult;
 import com.example.rag.dto.RerankResult;
 import com.example.rag.dto.SqlTableColumnResult;
-import com.example.rag.dto.SourceItem;
 import com.example.rag.enums.ToolType;
 import com.example.rag.service.AgentTool;
 import com.example.rag.service.LlmAnswerClient;
@@ -89,10 +88,17 @@ public class AnswerGenerateTool implements AgentTool {
                                           AgentToolInput input,
                                           long start,
                                           String summary) {
-        if (!retainSupportedSources(response)) {
+        SupportedEvidenceContext evidence = SupportedEvidenceContext.from(
+                response == null ? null : response.getSources());
+        if (evidence.isEmpty()) {
             return abstainWithoutEvidence(result, response, input, start, summary);
         }
-        LlmAnswerResult answerResult = generateAnswer(input, response);
+        response.setSources(evidence.sources());
+        response.setRelationPaths(evidence.supportedRelationPaths(response.getRelationPaths()));
+        response.setStructuredContext(evidence.structuredContext());
+        response.setAnswer(evidence.answer());
+        LlmAnswerResult answerResult = generateAnswer(evidence.request(
+                input == null ? null : input.getQuestion(), buildTraceContext(input)));
         if (StringUtils.hasText(answerResult.getAnswer())) {
             response.setAnswer(answerResult.getAnswer());
         }
@@ -110,26 +116,6 @@ public class AnswerGenerateTool implements AgentTool {
             result.setErrorMessage(answerResult.getErrorMessage());
         }
         return result;
-    }
-
-    private boolean retainSupportedSources(AskResponse response) {
-        if (response == null || response.getSources() == null) {
-            return false;
-        }
-        ArrayList<SourceItem> supportedSources = new ArrayList<>();
-        for (SourceItem source : response.getSources()) {
-            if (source == null || source.getEvidenceSentences() == null) {
-                continue;
-            }
-            for (String sentence : source.getEvidenceSentences()) {
-                if (StringUtils.hasText(sentence)) {
-                    supportedSources.add(source);
-                    break;
-                }
-            }
-        }
-        response.setSources(supportedSources);
-        return !supportedSources.isEmpty();
     }
 
     private AgentToolResult abstainWithoutEvidence(AgentToolResult result,
@@ -156,9 +142,9 @@ public class AnswerGenerateTool implements AgentTool {
         return result;
     }
 
-    private LlmAnswerResult generateAnswer(AgentToolInput input, AskResponse response) {
+    private LlmAnswerResult generateAnswer(LlmAnswerRequest request) {
         LlmAnswerClient client = shouldUseLangChain4j() ? langChain4jAnswerClient : ruleBasedAnswerClient;
-        return client.generate(buildLlmAnswerRequest(input, response));
+        return client.generate(request);
     }
 
     private boolean shouldUseLangChain4j() {
@@ -168,24 +154,11 @@ public class AnswerGenerateTool implements AgentTool {
                 && answerGenerationProperties.getLangchain4j().isEnabled();
     }
 
-    private LlmAnswerRequest buildLlmAnswerRequest(AgentToolInput input, AskResponse response) {
-        LlmAnswerRequest request = new LlmAnswerRequest();
-        request.setQuestion(input == null ? null : input.getQuestion());
-        request.setTopChunks(input == null || input.getChunkHits() == null ? new ArrayList<>() : input.getChunkHits());
-        request.setRelationEvidence(input == null || input.getRelationHits() == null ? new ArrayList<>() : input.getRelationHits());
-        request.setSources(response == null || response.getSources() == null ? new ArrayList<>() : response.getSources());
-        request.setStructuredContext(response == null ? null : response.getStructuredContext());
-        request.setRuleBasedAnswer(response == null ? null : response.getAnswer());
-        request.setTraceContext(buildTraceContext(input));
-        return request;
-    }
-
     private String buildTraceContext(AgentToolInput input) {
         if (input == null) {
             return "";
         }
-        return "matchedQueries=" + input.getMatchedQueries()
-                + ", recallFallbackUsed=" + input.isRecallFallbackUsed()
+        return "recallFallbackUsed=" + input.isRecallFallbackUsed()
                 + ", candidateCountAfterMerge=" + input.getCandidateCountAfterMerge();
     }
 

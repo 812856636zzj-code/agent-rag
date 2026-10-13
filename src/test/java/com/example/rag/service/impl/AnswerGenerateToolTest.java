@@ -50,7 +50,7 @@ class AnswerGenerateToolTest {
         AskResponse response = (AskResponse) result.getData();
 
         assertTrue(result.isSuccess());
-        assertEquals("rule answer", response.getAnswer());
+        assertEquals("chunk evidence", response.getAnswer());
         assertEquals(1, response.getSources().size());
         assertEquals("CHUNK", response.getSources().get(0).getSourceType());
         assertEquals("RULE", response.getDebug().getAnswerProvider());
@@ -81,7 +81,7 @@ class AnswerGenerateToolTest {
         AskResponse response = (AskResponse) result.getData();
 
         assertTrue(result.isSuccess());
-        assertEquals("rule fallback answer", response.getAnswer());
+        assertEquals("chunk evidence", response.getAnswer());
         assertEquals(1, response.getSources().size());
         assertEquals("RULE", response.getDebug().getAnswerProvider());
         assertTrue(response.getDebug().isAnswerFallbackUsed());
