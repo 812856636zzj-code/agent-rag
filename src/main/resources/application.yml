@@ -40,3 +40,7 @@ answer:
     maxTokens: 800
     fallbackEnabled: true
     apiKey: ${OPENAI_API_KEY:}
+
+rag:
+  upload:
+    directory: ${RAG_UPLOAD_DIR:uploads}

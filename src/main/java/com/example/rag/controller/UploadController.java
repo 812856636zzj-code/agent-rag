@@ -11,6 +11,7 @@ import com.example.rag.service.DocumentService;
 import com.example.rag.service.SearchService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
@@ -33,22 +34,24 @@ import java.util.Optional;
 @RestController
 public class UploadController {
 
-    private static final String UPLOAD_DIR = "D:/rag_api/uploads/";
     private static final Logger log = LoggerFactory.getLogger(UploadController.class);
 
     private final DocumentService documentService;
     private final DocumentChunkService documentChunkService;
     private final DocumentMarkdownConverter documentMarkdownConverter;
     private final SearchService searchService;
+    private final Path uploadDirectory;
 
     public UploadController(DocumentService documentService,
                             DocumentChunkService documentChunkService,
                             DocumentMarkdownConverter documentMarkdownConverter,
-                            SearchService searchService) {
+                            SearchService searchService,
+                            @Value("${rag.upload.directory:uploads}") String uploadDirectory) {
         this.documentService = documentService;
         this.documentChunkService = documentChunkService;
         this.documentMarkdownConverter = documentMarkdownConverter;
         this.searchService = searchService;
+        this.uploadDirectory = Paths.get(uploadDirectory).toAbsolutePath().normalize();
     }
 
     @GetMapping("/test")
@@ -120,9 +123,9 @@ public class UploadController {
             return ResponseEntity.badRequest().body(buildUploadResult(false, false, "file is empty", null, null));
         }
 
-        String originalFilename = StringUtils.cleanPath(file.getOriginalFilename());
+        String originalFilename = file.getOriginalFilename();
         log.info("upload fileName = {}", originalFilename);
-        if (!StringUtils.hasText(originalFilename)) {
+        if (!isValidFilename(originalFilename)) {
             return ResponseEntity.badRequest().body(buildUploadResult(false, false, "file name is invalid", null, null));
         }
         if (!documentMarkdownConverter.supports(originalFilename)) {
@@ -163,10 +166,10 @@ public class UploadController {
         Path targetPath;
         try {
             log.info("start save local file");
-            Path uploadPath = Paths.get(UPLOAD_DIR);
+            Path uploadPath = uploadDirectory;
             Files.createDirectories(uploadPath);
 
-            targetPath = uploadPath.resolve(originalFilename);
+            targetPath = uploadPath.resolve(originalFilename).normalize();
             Files.copy(file.getInputStream(), targetPath, StandardCopyOption.REPLACE_EXISTING);
             log.info("local file saved path = {}", targetPath.toAbsolutePath());
         } catch (IOException e) {
@@ -199,6 +202,21 @@ public class UploadController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(buildUploadResult(false, false, "save chunks failed", document.getId(), originalFilename));
         }
+    }
+
+    private boolean isValidFilename(String filename) {
+        if (!StringUtils.hasText(filename) || ".".equals(filename) || "..".equals(filename)
+                || filename.endsWith(" ") || filename.endsWith(".")) {
+            return false;
+        }
+        for (int i = 0; i < filename.length(); i++) {
+            char c = filename.charAt(i);
+            if (c == '/' || c == '\\' || c == ':' || c == '<' || c == '>' || c == '"'
+                    || c == '|' || c == '?' || c == '*' || Character.isISOControl(c)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private UploadResult buildUploadResult(boolean uploaded,
