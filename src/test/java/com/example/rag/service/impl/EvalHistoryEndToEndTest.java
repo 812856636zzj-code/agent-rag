@@ -79,6 +79,15 @@ class EvalHistoryEndToEndTest {
         assertEquals(15, comparison.getBody().path("caseCount").asInt());
         assertEquals(15, comparison.getBody().path("cases").size());
 
+        ResponseEntity<JsonNode> gate = restTemplate.getForEntity(
+                "/eval/gate?base=" + firstId + "&candidate=" + secondId, JsonNode.class);
+        assertEquals(OK, gate.getStatusCode());
+        assertEquals(firstId, gate.getBody().path("baseRunId").asLong());
+        assertEquals(secondId, gate.getBody().path("candidateRunId").asLong());
+        assertEquals(comparison.getBody().path("graphRegressions").asInt(),
+                gate.getBody().path("observed").path("graphRegressions").asInt());
+        assertTrue(gate.getBody().has("passed"));
+
         ResponseEntity<JsonNode> page = restTemplate.getForEntity("/eval/runs?limit=1", JsonNode.class);
         assertEquals(OK, page.getStatusCode());
         assertEquals(secondId, page.getBody().path("items").get(0).path("runId").asLong());
@@ -106,6 +115,9 @@ class EvalHistoryEndToEndTest {
     @Test
     void historyRejectsInvalidRequestsAndIncompleteComparisons() {
         assertEquals(BAD_REQUEST, restTemplate.getForEntity("/eval/runs?limit=0", JsonNode.class).getStatusCode());
+        assertEquals(BAD_REQUEST, restTemplate.getForEntity(
+                "/eval/gate?base=1&candidate=2&maxNewWrongAnswers=-1",
+                JsonNode.class).getStatusCode());
         assertEquals(BAD_REQUEST, restTemplate.getForEntity("/eval/runs?before=-1", JsonNode.class).getStatusCode());
         assertEquals(BAD_REQUEST, restTemplate.getForEntity("/eval/runs/-1", JsonNode.class).getStatusCode());
         assertEquals(NOT_FOUND, restTemplate.getForEntity("/eval/runs/999999999", JsonNode.class).getStatusCode());
