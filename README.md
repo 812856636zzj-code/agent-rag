@@ -123,9 +123,13 @@ Set the database connection for a local run:
 $env:RAG_DB_URL = 'jdbc:oracle:thin:@//localhost:1521/FREEPDB1'
 $env:RAG_DB_USER = 'RAG_APP'
 $env:RAG_DB_PASSWORD = '<your-db-password>'
+# Optional: choose where original uploaded files are stored.
+$env:RAG_UPLOAD_DIR = Join-Path (Get-Location) 'uploads'
 ```
 
 `application.yml` reads these variables. URL and username have local defaults; the password has no default. Hibernate defaults to `validate`, so startup checks the SQL schema instead of creating or changing it. If an existing deployment needs the previous behavior temporarily, set `RAG_DDL_AUTO=none` after reviewing schema compatibility.
+
+Uploaded source files go to `uploads/` under the working directory by default; `RAG_UPLOAD_DIR` overrides that path, including for existing installations using another drive. The default folder is ignored by Git. `/upload` accepts a single file name, without directory components, and returns HTTP 400 for an invalid name.
 
 Start the backend:
 
@@ -133,7 +137,13 @@ Start the backend:
 mvn spring-boot:run
 ```
 
-Run eval in another terminal from the repository root:
+In another terminal at the repository root, ingest a checked-in Markdown document after startup:
+
+```powershell
+curl.exe -F "file=@docs/design/memory_design.md" -F "documentType=KNOWLEDGE" http://localhost:8080/upload
+```
+
+Run eval from that terminal at the repository root:
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/eval/run
