@@ -30,41 +30,41 @@ The RAG pipeline could select a `USERS` field sentence as evidence for an `ORDER
 
 ## Milestone 1: prevent cross-table evidence
 
-- Start: `60c58c78c15e64b06ff526e8a120dd6179775c98` (the pre-development baseline).
-- End: `10a8dbd237c42c9abd1d941308a11a0f20322968`.
+- Start: `27f60fe33e619a7b4e66ff4d4bcb47fbde471f14` (the pre-development baseline).
+- End: `c4764442b23e8cf6bb6111cd3e63a5ee2ddeca45`.
 - Goal: asking for `ORDERS` fields must not select a `USERS` field sentence as evidence.
-- Failing test commit: `64824bc`, `EvidenceSelectorImplTest.doesNotUseAnotherTablesFieldsAsEvidence`. At the start state with the test added, `mvn -o -B -Dtest=EvidenceSelectorImplTest test` reported 2 tests, 1 failure.
-- Fix commit: `10a8dbd`. `mvn -o -B clean verify` passed 6 tests and built the JAR.
+- Failing test commit: `4b60fa6`, `EvidenceSelectorImplTest.doesNotUseAnotherTablesFieldsAsEvidence`. At the start state with the test added, `mvn -o -B -Dtest=EvidenceSelectorImplTest test` reported 2 tests, 1 failure.
+- Fix commit: `c476444`. `mvn -o -B clean verify` passed 6 tests and built the JAR.
 - Scope: `EvidenceSelectorImpl.java` and its test only.
 
 ## Milestone 2: abstain when retrieval has no evidence
 
-- Start: `10a8dbd237c42c9abd1d941308a11a0f20322968` (exactly milestone 1's end).
-- End: `e2976dfb23d07e46be9ecbef844c753912a79f56`.
+- Start: `c4764442b23e8cf6bb6111cd3e63a5ee2ddeca45` (exactly milestone 1's end).
+- End: `57e6a18697bd37391624a3903019e36fe6316ee1`.
 - Goal: when all retrieved sources have no nonblank evidence sentence, return `NO_ANSWER`, omit unsupported sources, skip answer model generation, and keep retrieval diagnostics.
-- Failing test commit: `ba30761`, `AnswerGenerateToolTest.abstainsWhenChunksHaveNoSupportingEvidence` and `doesNotCallModelWhenChunksHaveNoSupportingEvidence`. At the start state with these tests added, `mvn -o -B -Dtest=AnswerGenerateToolTest test` reported 4 tests, 2 failures.
-- Fix commit: `e2976df`. `mvn -o -B clean verify` passed 9 tests and built the JAR, including a cross-component evidence selection test.
+- Failing test commit: `bc7f740`, `AnswerGenerateToolTest.abstainsWhenChunksHaveNoSupportingEvidence` and `doesNotCallModelWhenChunksHaveNoSupportingEvidence`. At the start state with these tests added, `mvn -o -B -Dtest=AnswerGenerateToolTest test` reported 4 tests, 2 failures.
+- Fix commit: `57e6a18`. `mvn -o -B clean verify` passed 9 tests and built the JAR, including a cross-component evidence selection test.
 - Scope: `AgentAnswerAssembler.java`, `AnswerGenerateTool.java`, and `AnswerGenerateToolTest.java` only.
 
 ## Milestone 3: expose wrong answers and citation gaps in fixed eval
 
-- Start: `e2976dfb23d07e46be9ecbef844c753912a79f56` (exactly milestone 2's end).
-- End: `a624a86b57823fe22842d919ca43136a3ad3107c`.
+- Start: `57e6a18697bd37391624a3903019e36fe6316ee1` (exactly milestone 2's end).
+- End: `b6b22c425a4b9bbb392b33be2ff4670fb2c54321`.
 - Goal: preserve legacy hit metrics but add `wrongAnswer`, `citationMatched`, `citationMissing`, and `abstained` per question, counts in the JSON summary, and columns in the Markdown report.
-- Failing test commit: `ef8e1ae`, `EvalQualityMetricsTest` showed 2 failures out of 2 tests at the start state. A graph response with answer `USERS has NAME` was previously considered a hit for expected `ORDERS AMOUNT` because those words appeared only in retrieved context/content.
-- First implementation: `8736904`. Focused tests passed 2/2, and `mvn -o -B clean verify` passed 11/11 and built the JAR.
-- Additional failing test commit: `b01b7f8`, `rejectsUnrelatedEvidenceEvenWhenDocumentNameMatchesExpectedSource`. The focused suite then reported 3 tests, 1 failure: a matching `ORDERS.md` filename hid an unrelated `USERS has NAME` evidence sentence.
-- Final fix: `ab6ba60`. `mvn -o -B -Dtest=EvalQualityMetricsTest test` passed 3/3. A citation now needs nonblank evidence containing at least one expected answer keyword plus a match to an expected source token in the source name or evidence. When no expected source token is specified, relevant evidence alone is sufficient.
-- Final interval verification: at `a624a86`, `mvn -o -B clean verify` passed 12/12 tests and built the JAR.
-- Scope: the eval implementation changes are in `EvalRunResult.java`, `EvalRunSummary.java`, `EvalServiceImpl.java`, and `EvalQualityMetricsTest.java`. The interval also contains `e120c83` (externalized a pre-existing fixed database password), `3e75db8` (documented these milestones), `4ae1536` (documented setup and eval outputs), and `a624a86` (recorded five future TODOs). The credential change is unrelated to eval scoring; it was made while preparing the repository for publication and is called out here rather than presented as part of the metric fix.
+- Failing test commit: `866a30a`, `EvalQualityMetricsTest` showed 2 failures out of 2 tests at the start state. A graph response with answer `USERS has NAME` was previously considered a hit for expected `ORDERS AMOUNT` because those words appeared only in retrieved context/content.
+- First implementation: `5a0ed7d`. Focused tests passed 2/2, and `mvn -o -B clean verify` passed 11/11 and built the JAR.
+- Additional failing test commit: `a32e27b`, `rejectsUnrelatedEvidenceEvenWhenDocumentNameMatchesExpectedSource`. The focused suite then reported 3 tests, 1 failure: a matching `ORDERS.md` filename hid an unrelated `USERS has NAME` evidence sentence.
+- Final fix: `caa62f2`. `mvn -o -B -Dtest=EvalQualityMetricsTest test` passed 3/3. A citation now needs nonblank evidence containing at least one expected answer keyword plus a match to an expected source token in the source name or evidence. When no expected source token is specified, relevant evidence alone is sufficient.
+- Final interval verification: at `b6b22c4`, `mvn -o -B clean verify` passed 12/12 tests and built the JAR.
+- Scope: the eval implementation changes are in `EvalRunResult.java`, `EvalRunSummary.java`, `EvalServiceImpl.java`, and `EvalQualityMetricsTest.java`. The interval also contains `fe819a2` (externalized a pre-existing fixed database password), `fa765b3` (documented these milestones), `52cd500` (documented setup and eval outputs), and `b6b22c4` (recorded five future TODOs). The credential change is unrelated to eval scoring; it was made while preparing the repository for publication and is called out here rather than presented as part of the metric fix.
 
 ## Milestone 4: suppress unsupported citations in mixed evidence
 
-- Start: `a624a86b57823fe22842d919ca43136a3ad3107c` (exactly milestone 3's end).
-- End: `02015ce1ea5cc5f15fb303132dbd7c4adb7e9c28`.
+- Start: `b6b22c425a4b9bbb392b33be2ff4670fb2c54321` (exactly milestone 3's end).
+- End: `1958f82e5024363073fc4398e1d4924378e43afe`.
 - Goal: when one retrieved source has a nonblank evidence sentence and another has only blank evidence, keep the answer and supported citation, remove the unsupported citation from the response and the model's source preview, and preserve both retrieval hits in diagnostics.
-- Failing test commit: `7159596`, `AnswerGenerateToolTest.removesUnsupportedCitationFromMixedEvidenceBeforeModelGeneration`. At the start state with this test added, `mvn -o -B -Dtest=AnswerGenerateToolTest test` reported 6 tests, 1 failure: expected 1 published source but got 2.
-- Fix commit: `02015ce`. The same focused command passed 6/6; `mvn -o -B clean verify` passed 13/13 and built the JAR.
+- Failing test commit: `dfc0c5f`, `AnswerGenerateToolTest.removesUnsupportedCitationFromMixedEvidenceBeforeModelGeneration`. At the start state with this test added, `mvn -o -B -Dtest=AnswerGenerateToolTest test` reported 6 tests, 1 failure: expected 1 published source but got 2.
+- Fix commit: `1958f82`. The same focused command passed 6/6; `mvn -o -B clean verify` passed 13/13 and built the JAR.
 - Scope: `AnswerGenerateTool.java` and `AnswerGenerateToolTest.java` only.
 - Limit: this interval filters citation objects. `buildLlmAnswerRequest` still passes raw `topChunks`, `relationEvidence`, and `structuredContext` to `LangChain4jAnswerClient.buildPrompt`, even if a corresponding citation was filtered. Separately constraining those prompt inputs and regenerating rule-based answers from supported evidence remains a future task.
 
@@ -76,10 +76,12 @@ The previous four intervals did not exercise a live Oracle database. Interval 5 
 
 ## Development interval 5: empty Oracle schema to fixed eval
 
-- Start: `14e50cf` (the user-specified state). This follows documentation commits after interval 4, so it is recorded as a separate development interval rather than presented as an adjacent qualifying platform milestone.
-- End: `46ade71`.
+- Start: `e18c6e6` (the user-specified state). This follows documentation commits after interval 4, so it is recorded as a separate development interval rather than presented as an adjacent qualifying platform milestone.
+- End: `cb12f11`.
 - Requirement: create all persistence objects and minimal first-party knowledge in a fresh Oracle schema, start the app with schema validation, call `POST /eval/run`, and verify the fixed results and report without overwriting historical artifacts.
-- Failing test commit: `83ddb1f`, `LocalEvalEndToEndTest`. The initial connection attempt exposed an Oracle 26ai / JDBC 19.3 compatibility failure (`ORA-01017`). Driver fix `fd767ca` switched to `ojdbc11:23.26.1.0.0`; rerunning the still-failing test against an empty dedicated schema then failed at startup with `Schema-validation: missing table [rag_agent_memories]`. This is the schema red state, saved locally as `agent-rag-e2e-schema-red.log` in the temp directory.
-- Implementation: `46ade71` adds `sql/bootstrap_oracle.sql`, three base tables, existing entity/relation/memory scripts in dependency order, one `KNOWLEDGE` document and chunk, the missing relation `CONFIDENCE` column, Oracle `NUMBER` conversion for Java `Double`, configurable report output, and validated startup defaults. The test was strengthened to require seeded `EVAL-005` to answer and summary counters to equal JSON result counts.
+- Failing test commit: `b051e37`, `LocalEvalEndToEndTest`. The initial connection attempt exposed an Oracle 26ai / JDBC 19.3 compatibility failure (`ORA-01017`). Driver fix `d9713fc` switched to `ojdbc11:23.26.1.0.0`; rerunning the still-failing test against an empty dedicated schema then failed at startup with `Schema-validation: missing table [rag_agent_memories]`. This is the schema red state, saved locally as `agent-rag-e2e-schema-red.log` in the temp directory.
+- Implementation: `cb12f11` adds `sql/bootstrap_oracle.sql`, three base tables, existing entity/relation/memory scripts in dependency order, one `KNOWLEDGE` document and chunk, the missing relation `CONFIDENCE` column, Oracle `NUMBER` conversion for Java `Double`, configurable report output, and validated startup defaults. The test was strengthened to require seeded `EVAL-005` to answer and summary counters to equal JSON result counts.
 - Verification: a second, newly created `RAG_EVAL_BOOTSTRAP` schema had 0 tables before bootstrap; the unmodified bootstrap created 7 tables and 1 chunk. `mvn -o -B -Dtest=LocalEvalEndToEndTest test` then passed 1/1 with real Oracle Free 26ai, a random Spring Boot port, and a live `POST /eval/run`. The generated report showed total 15, baseline hits 0, graph hits 2, source hits 2, wrong answers 0, citation matches 1, citation misses 1, and abstentions 13. These values reflect only this small seed; they are not a quality target. `mvn -o -B clean verify` passed 13 ordinary tests, skipped the opt-in Oracle test, and built the JAR.
 - Scope and size: from start to end, the `.java`/`.yml` diff covers 6 files and 142 changed lines. Including SQL and `pom.xml` gives 11 code/config files and 207 changed lines. The functional requirement is complete, but this interval fails the platform's >2,000-line milestone condition. Inflating the diff solely to meet that condition would not be a real engineering change.
+
+History note: commit IDs above were remapped during credential redaction. The commit topology and code changes were preserved; the old IDs must not be used for new milestone submissions.
