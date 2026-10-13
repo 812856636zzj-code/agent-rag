@@ -1,6 +1,7 @@
 package com.example.rag.entity;
 
 import javax.persistence.Column;
+import javax.persistence.Convert;
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
@@ -46,6 +47,7 @@ public class RagAgentMemory {
     private String sourceId;
 
     @Column(name = "CONFIDENCE")
+    @Convert(converter = ConfidenceConverter.class)
     private Double confidence;
 
     @Column(name = "USAGE_COUNT")

@@ -27,6 +27,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -57,8 +58,8 @@ public class EvalServiceImpl implements EvalService {
     private static final Path DAY7_EVAL_MARKDOWN_PATH = Paths.get("docs", "eval", "eval_result.md");
     private static final Path DAY7_EVAL_RAW_RESULT_PATH = Paths.get("docs", "eval", "day7_raw_results.json");
     private static final Path LATEST_EVAL_QUESTIONS_PATH = Paths.get("docs", "eval", "questions.json");
-    private static final Path LATEST_EVAL_REPORT_PATH = Paths.get("docs", "eval", "latest_eval_report.md");
-    private static final Path LATEST_EVAL_RESULTS_PATH = Paths.get("docs", "eval", "latest_eval_results.json");
+    @Value("${rag.eval.output-dir:docs/eval}")
+    private String evalOutputDir = "docs/eval";
 
     private final AskService askService;
     private final QuestionClassifier questionClassifier;
@@ -748,8 +749,8 @@ public class EvalServiceImpl implements EvalService {
         summary.setBaselineHitRate(ratio(baselineHitCount, results.size()));
         summary.setGraphHitRate(ratio(graphHitCount, results.size()));
         summary.setSourceHitRate(ratio(sourceHitCount, results.size()));
-        summary.setResultsPath(LATEST_EVAL_RESULTS_PATH.toString());
-        summary.setReportPath(LATEST_EVAL_REPORT_PATH.toString());
+        summary.setResultsPath(latestEvalResultsPath().toString());
+        summary.setReportPath(latestEvalReportPath().toString());
         summary.setResults(results);
         return summary;
     }
@@ -1094,9 +1095,10 @@ public class EvalServiceImpl implements EvalService {
     }
 
     private void writeEvalRunResults(List<EvalRunResult> results) {
+        Path path = latestEvalResultsPath();
         try {
-            Files.createDirectories(LATEST_EVAL_RESULTS_PATH.getParent());
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(LATEST_EVAL_RESULTS_PATH.toFile(), results);
+            Files.createDirectories(path.getParent());
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), results);
         } catch (IOException ex) {
             throw new IllegalStateException("write latest eval results failed", ex);
         }
@@ -1104,12 +1106,21 @@ public class EvalServiceImpl implements EvalService {
 
     private void writeEvalRunReport(EvalRunSummary summary) {
         String markdown = buildEvalRunReport(summary);
+        Path path = latestEvalReportPath();
         try {
-            Files.createDirectories(LATEST_EVAL_REPORT_PATH.getParent());
-            Files.write(LATEST_EVAL_REPORT_PATH, markdown.getBytes(StandardCharsets.UTF_8));
+            Files.createDirectories(path.getParent());
+            Files.write(path, markdown.getBytes(StandardCharsets.UTF_8));
         } catch (IOException ex) {
             throw new IllegalStateException("write latest eval report failed", ex);
         }
+    }
+
+    private Path latestEvalResultsPath() {
+        return Paths.get(evalOutputDir, "latest_eval_results.json");
+    }
+
+    private Path latestEvalReportPath() {
+        return Paths.get(evalOutputDir, "latest_eval_report.md");
     }
 
     private String buildEvalRunReport(EvalRunSummary summary) {

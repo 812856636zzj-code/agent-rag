@@ -1,6 +1,7 @@
 package com.example.rag.entity;
 
 import javax.persistence.Column;
+import javax.persistence.Convert;
 import javax.persistence.Entity;
 import javax.persistence.GeneratedValue;
 import javax.persistence.GenerationType;
@@ -38,6 +39,7 @@ public class RagEntityRelation {
     private String evidenceText;
 
     @Column(name = "CONFIDENCE")
+    @Convert(converter = ConfidenceConverter.class)
     private Double confidence;
 
     @Column(name = "CREATED_AT")

@@ -78,7 +78,7 @@ Prerequisites:
 
 - JDK 17
 - Maven (3.9.6 was used for the documented local verification)
-- A reachable Oracle-compatible database with this application's tables and representative documents loaded
+- A reachable Oracle database (tested with Oracle Free 26ai), SQL*Plus, and an empty application schema for a fresh setup
 
 Run the following commands from the repository root. On a machine with network access, populate Maven's dependency cache and build the JAR:
 
@@ -94,15 +94,25 @@ mvn -o -B clean verify
 
 A fresh machine without a populated Maven cache cannot use the offline command immediately. The build writes `target/rag_api-1.0-SNAPSHOT.jar` and test reports under `target/surefire-reports/`.
 
+Ask a database administrator to create a dedicated empty user in the target PDB with `CREATE SESSION`, `CREATE TABLE`, `CREATE SEQUENCE`, and a tablespace quota. From the repository's `sql/` directory, run the ordered bootstrap as that user; SQL*Plus prompts for the password:
+
+```powershell
+cd sql
+sqlplus -L RAG_APP@//localhost:1521/FREEPDB1 @bootstrap_oracle.sql
+cd ..
+```
+
+`bootstrap_oracle.sql` creates seven tables, their sequences and indexes, and one `KNOWLEDGE` document with one chunk for fixed eval. It is for an **empty schema** and deliberately fails on existing objects. It never drops tables. To upgrade an existing schema, review and apply targeted migrations instead. In particular, `RAG_ENTITY_RELATIONS.CONFIDENCE` is now present and both confidence columns use Oracle `NUMBER(10,4)`.
+
 Set the database connection for a local run:
 
 ```powershell
-$env:RAG_DB_URL = 'jdbc:oracle:thin:@//localhost:1521/ORCLPDB'
+$env:RAG_DB_URL = 'jdbc:oracle:thin:@//localhost:1521/FREEPDB1'
 $env:RAG_DB_USER = 'RAG_APP'
 $env:RAG_DB_PASSWORD = '<your-db-password>'
 ```
 
-`application.yml` reads these variables. URL and username have local defaults; the password has no default. `spring.jpa.hibernate.ddl-auto=none`, so the app does not create its own tables. The `sql/` directory contains scripts for entity, relation, and memory tables, but currently lacks a complete clean-database schema for `RAG_DOCUMENTS` and `RAG_DOCUMENT_CHUNKS`. Provide an existing compatible schema before starting the server or running database-backed eval. This gap is tracked in `docs/roadmap.md`.
+`application.yml` reads these variables. URL and username have local defaults; the password has no default. Hibernate defaults to `validate`, so startup checks the SQL schema instead of creating or changing it. If an existing deployment needs the previous behavior temporarily, set `RAG_DDL_AUTO=none` after reviewing schema compatibility.
 
 Start the backend:
 
@@ -110,15 +120,15 @@ Start the backend:
 mvn spring-boot:run
 ```
 
-After loading the fixed question set's required documents, run eval in another terminal from the repository root:
+Run eval in another terminal from the repository root:
 
 ```powershell
 Invoke-RestMethod -Method Post -Uri http://localhost:8080/eval/run
 ```
 
-The endpoint reads `docs/eval/questions.json` and rewrites `docs/eval/latest_eval_results.json` plus `docs/eval/latest_eval_report.md` relative to the process working directory. Its new per-question fields are `wrongAnswer`, `citationMatched`, `citationMissing`, and `abstained`; the summary/report include their counts. The wrong-answer flag checks expected keywords in the answer itself. The citation flag requires an evidence sentence with an expected answer keyword and an expected source token in either the source name or evidence. These are deterministic review signals, not semantic proof.
+The endpoint reads `docs/eval/questions.json` and writes `latest_eval_results.json` plus `latest_eval_report.md` to `docs/eval/` by default. Set `rag.eval.output-dir` to use another directory, as the integration test does to protect checked-in historical reports. Its new per-question fields are `wrongAnswer`, `citationMatched`, `citationMissing`, and `abstained`; the summary/report include their counts. The wrong-answer flag checks expected keywords in the answer itself. The citation flag requires an evidence sentence with an expected answer keyword and an expected source token in either the source name or evidence. These are deterministic review signals, not semantic proof.
 
-The database-backed endpoint was not available during the latest local changes. The recorded validation is JDK 17 unit tests and `mvn -o -B clean verify` with cached dependencies; see `docs/design/evidence_eval_milestones.md` for each red/green interval.
+To repeat the real Oracle-backed endpoint test in a dedicated schema prepared by the bootstrap, set `RAG_E2E_ENABLED=true` along with the three `RAG_DB_*` variables, then run `mvn -B -Dtest=LocalEvalEndToEndTest test`. Without the opt-in variable, normal builds skip this database test. The test calls `POST /eval/run`, checks seeded `EVAL-005`, and compares response counts with its isolated JSON report. See `docs/design/evidence_eval_milestones.md` for the red/green record.
 
 An optional model-backed answer mode is documented in `docs/langchain4j_integration.md`; rule mode needs no model API key.
 
