@@ -75,6 +75,14 @@ LangChain4j is intentionally connected only to answer generation:
 - fallback: failed model calls return the rule-based answer
 - sources remain backend-structured and auditable
 
+`AnswerGenerateTool` now projects selected, nonblank evidence sentences into the
+model request and rule fallback. Original chunk text, relation text, and the
+preassembled answer do not enter those answer inputs after a citation is
+rejected. The published citation content and structured answer context use the
+same selected sentences; retrieval counts remain available in debug fields.
+This is a deterministic evidence boundary, not a semantic proof that a model's
+new answer is true. See `docs/design/supported_evidence_boundary.md`.
+
 Detailed notes and real-model validation steps are in `docs/langchain4j_integration.md`.
 
 ## Install and Run Locally
